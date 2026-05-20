@@ -1,4 +1,4 @@
-﻿return {
+return {
 	"67",
 	"69",
 	"Agarrini La Palini",
