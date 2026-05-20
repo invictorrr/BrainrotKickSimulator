@@ -183,6 +183,48 @@ function LevelManager.UnlockZone(zoneId: number)
 	end
 end
 
+-- Mueve el SpawnLocation principal al lobby del HD map (Areas/Zones.Spawn.Spawn)
+-- y elimina cualquier otro spawn duplicado para que el jugador aparezca arriba
+-- del mapa nuevo en vez de en el suelo legacy.
+local function setupLobbySpawn(hdMap: Instance)
+	local areasZones = hdMap.Map:FindFirstChild("Areas/Zones")
+	local lobby = areasZones and areasZones:FindFirstChild("Spawn")
+	local lobbySpawnPart = lobby and lobby:FindFirstChild("Spawn")
+	if not (lobbySpawnPart and lobbySpawnPart:IsA("BasePart")) then
+		warn("[LevelManager] No se encontró el Spawn del lobby (Areas/Zones.Spawn.Spawn)")
+		return
+	end
+
+	local desiredPos = lobbySpawnPart.Position + Vector3.new(0, 3, 0)
+	local kept: SpawnLocation? = nil
+	for _, inst in ipairs(workspace:GetDescendants()) do
+		if inst:IsA("SpawnLocation") then
+			if not kept then
+				kept = inst
+			else
+				inst:Destroy()
+			end
+		end
+	end
+
+	if not kept then
+		kept = Instance.new("SpawnLocation")
+		kept.Name = "LobbySpawn"
+		kept.Size = Vector3.new(6, 1, 6)
+		kept.Anchored = true
+		kept.CanCollide = true
+		kept.Transparency = 1
+		kept.Parent = workspace
+	end
+
+	kept.Position = desiredPos
+	kept.Anchored = true
+	kept.CanCollide = true
+	kept.Neutral = true
+	kept.AllowTeamChangeOnTouch = false
+	kept.Enabled = true
+end
+
 function LevelManager.Init(brainrotSystem)
 	if state.initialized then return end
 	state.initialized = true
@@ -193,6 +235,8 @@ function LevelManager.Init(brainrotSystem)
 		warn("[LevelManager] No se encontró 'HD Simulator Map' en Workspace. Se usará el sistema legacy.")
 		return
 	end
+
+	setupLobbySpawn(hdMap)
 
 	local doors = findDoorsFolder(hdMap)
 	if not doors then

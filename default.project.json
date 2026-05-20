@@ -13,7 +13,7 @@
     },
     "StarterGui": {
       "$properties": {
-        "ScreenOrientation": "Sensor"
+        "ScreenOrientation": "LandscapeSensor"
       },
       "$path": "src/gui"
     },
@@ -25,7 +25,9 @@
         "AvatarJointUpgrade_SerializedRollout": "Enabled",
         "CameraMaxZoomDistance": 128.0,
         "CharacterBreakJointsOnDeath": false,
-        "CharacterUseJumpPower": false
+        "CharacterUseJumpPower": false,
+        "DevTouchMovementMode": "DynamicThumbstick",
+        "DevComputerMovementMode": "UserChoice"
       }
     },
     "Workspace": {
