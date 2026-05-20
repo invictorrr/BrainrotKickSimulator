@@ -471,7 +471,8 @@ local function stopIndicator()
         end
     end
 
-    -- Cooldown
+    -- Cooldown: se activa antes del FireServer para evitar race conditions
+    -- donde el servidor responde antes de que se setée el cooldown.
     canKick = false
     showCooldownBar(kickCooldown)
     task.delay(kickCooldown, function()
@@ -479,7 +480,6 @@ local function stopIndicator()
         if indicatorFrame then
             indicatorFrame.Visible = false
         end
-        -- Show kick marker again
         if kickMarker then
             kickMarker.Transparency = 0.4
         end
