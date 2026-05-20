@@ -342,7 +342,9 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
     local ballColor = Color3.fromRGB(255, 255, 255)
 
     if data.result == "goal" then
-        createBallFlyEffect(hrp.Position, goalPos, ballColor, true)
+        if not data.useServerPhysics then
+            createBallFlyEffect(hrp.Position, goalPos, ballColor, true)
+        end
         createFlashEffect(Color3.fromRGB(0, 255, 100), 0.5)
 
         -- Si capturó un brainrot, efecto extra
@@ -360,11 +362,15 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
         end
 
     elseif data.result == "saved" then
-        createBallFlyEffect(hrp.Position, goalPos, ballColor, false)
+        if not data.useServerPhysics then
+            createBallFlyEffect(hrp.Position, goalPos, ballColor, false)
+        end
         createFlashEffect(Color3.fromRGB(255, 100, 0), 0.3)
 
     else -- miss
-        createBallFlyEffect(hrp.Position, goalPos + Vector3.new(0, 15, 0), ballColor, false)
+        if not data.useServerPhysics then
+            createBallFlyEffect(hrp.Position, goalPos + Vector3.new(0, 15, 0), ballColor, false)
+        end
         playLocalSound(SoundConfig.Result.miss, 0.4)
         createFlashEffect(Color3.fromRGB(255, 50, 50), 0.3)
     end
@@ -468,7 +474,6 @@ task.spawn(function()
             end
         end
     end
-end
 end)
 
 -- ═══════════════════════════════════════════

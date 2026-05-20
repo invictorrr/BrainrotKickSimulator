@@ -133,6 +133,7 @@ local function spawnBrainrotInSlot(player, brainrotId, slotIndex)
     end
 
     model.Parent = slot
+    BrainrotSystem.StartIdleAnimation(model)
 end
 
 -- ═══════════════════════════════════════════

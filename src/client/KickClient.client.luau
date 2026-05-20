@@ -11,7 +11,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
-local CLIENT_VERSION = "v2026.05.20-1"
+local CLIENT_VERSION = "v2026.05.20-6"
 
 -- ═══════════════════════════════════════════
 -- ESPERAR A QUE LA UI ESTÉ LISTA
@@ -117,6 +117,9 @@ local indicatorSession = 0
 local kicksAwaitingResult = 0
 local pendingGoalResults: { any } = {}
 local runConnection = nil
+local updateKickMarkerPosition
+local updateIndicatorZones
+local sliderUpdateBroken = false
 
 -- ═══════════════════════════════════════════
 -- GOAL STREAK / COMBO SYSTEM
@@ -371,16 +374,30 @@ local function updateDistanceDisplay()
     if distLabel then
         distLabel.Text = "📏 Distancia: " .. tostring(selectedDistance) .. " studs"
     end
-    if sliderFill then
-        local range = zone.maxDistance - zone.minDistance
-        local relX = (range > 0) and ((selectedDistance - zone.minDistance) / range) or 0
-        sliderFill.Size = UDim2.new(math.clamp(relX, 0, 1), 0, 1, 0)
+    if sliderFill and not sliderUpdateBroken then
+        local ok = pcall(function()
+            local range = zone.maxDistance - zone.minDistance
+            local relX = (range > 0) and ((selectedDistance - zone.minDistance) / range) or 0
+            local clamped = relX
+            if clamped < 0 then clamped = 0 end
+            if clamped > 1 then clamped = 1 end
+            sliderFill.Size = UDim2.fromScale(clamped, 1)
+        end)
+        if not ok then
+            sliderUpdateBroken = true
+            warn("[KickClient] Error actualizando slider de distancia; se desactiva actualización visual del fill.")
+        end
     end
 
-    updateKickMarkerPosition()
+    if updateIndicatorZones then
+        updateIndicatorZones()
+    end
+    if updateKickMarkerPosition then
+        updateKickMarkerPosition()
+    end
 end
 
-local function updateKickMarkerPosition()
+updateKickMarkerPosition = function()
     if not kickMarker then
         return
     end
@@ -449,7 +466,7 @@ end
 -- ═══════════════════════════════════════════
 -- ACTUALIZAR ZONAS DEL INDICADOR
 -- ═══════════════════════════════════════════
-local function updateIndicatorZones()
+updateIndicatorZones = function()
     local greenSize, yellowSize, redSize = GameConfig.CalculateIndicatorZones(
         playerStats.power, selectedDistance, playerStats.currentZone
     )
@@ -587,7 +604,11 @@ displayGoalResult = function(data)
         end
 
     else
-        resultLabel.Text = "💨 El balón se fue lejos!"
+        if data.outOfRange then
+            resultLabel.Text = "💪 Falta potencia: alcance " .. tostring(data.maxKickDistance or 0) .. " studs"
+        else
+            resultLabel.Text = "💨 El balón se fue lejos!"
+        end
         resultLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
     end
 end
@@ -696,6 +717,17 @@ local function stopIndicator()
             return
         end
         finishKickCooldown()
+    end)
+
+    -- Failsafe absoluto: nunca quedarse bloqueado sin poder disparar
+    task.delay(4, function()
+        if canKick then
+            return
+        end
+        kicksAwaitingResult = 0
+        kickCooldownSeq += 1
+        canKick = true
+        resetKickUI(true)
     end)
 end
 
@@ -915,6 +947,7 @@ end)
 
 -- Resultado del gol
 RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
+    canKick = true
     kicksAwaitingResult = math.max(0, kicksAwaitingResult - 1)
     kickCooldownSeq += 1
 

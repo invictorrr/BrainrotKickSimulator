@@ -4,6 +4,7 @@
 ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
 
 local GameConfig = require(ReplicatedStorage.GameConfig)
 local PlayerData = require(game.ServerScriptService.PlayerData)
@@ -90,6 +91,7 @@ local function getRuntime(player)
             kickDistance = nil,       -- distancia seleccionada para patear
             currentGoalkeeper = nil,  -- brainrot que está de portero actualmente
             isKicking = false,        -- está en proceso de patada
+            kickLockToken = nil,      -- token anti-bloqueo de patada
             baseIncomeAccumulated = 0, -- income acumulado sin reclamar
         }
     end
@@ -121,6 +123,59 @@ local function sendStats(player)
         baseIncomePerSec = baseIncome,
         brainrotCount = #data.brainrots,
     })
+end
+
+local SHOT_SPREAD_BY_ZONE = {
+    green = 2,
+    yellow = 8,
+    red = 16,
+}
+
+local SHOT_POWER_MULTIPLIER = {
+    green = 1.0,
+    yellow = 1.0,
+    red = 1.0,
+}
+
+local function isPointInsidePart(point: Vector3, part: BasePart): boolean
+    local localPos = part.CFrame:PointToObjectSpace(point)
+    local half = part.Size * 0.5
+    return math.abs(localPos.X) <= half.X
+        and math.abs(localPos.Y) <= half.Y
+        and math.abs(localPos.Z) <= half.Z
+end
+
+local function isBallSaved(goalkeeperModel: Instance?, ballPos: Vector3): boolean
+    if not goalkeeperModel then
+        return false
+    end
+
+    local saveRadius = 2.2
+    for _, inst in ipairs(goalkeeperModel:GetDescendants()) do
+        if inst:IsA("BasePart") then
+            local r = (inst.Size.Magnitude * 0.25) + saveRadius
+            if (inst.Position - ballPos).Magnitude <= r then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function getGoalObjects(zoneId: number): (Model?, BasePart?)
+    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+    if not zoneModel then
+        return nil, nil
+    end
+    local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
+    if not goal or not goal:IsA("Model") then
+        return nil, nil
+    end
+    local goalZone = goal:FindFirstChild("GoalZone")
+    if goalZone and goalZone:IsA("BasePart") then
+        return goal, goalZone
+    end
+    return goal, nil
 end
 
 -- ═══════════════════════════════════════════
@@ -193,87 +248,129 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
 
     if runtime.isKicking then return end -- Anti-spam
     runtime.isKicking = true
+    local lockToken = tostring(os.clock()) .. "_" .. tostring(player.UserId)
+    runtime.kickLockToken = lockToken
+
+    -- Failsafe de servidor: si algo explota en medio del tiro, desbloquear.
+    task.delay(5, function()
+        if runtime.isKicking and runtime.kickLockToken == lockToken then
+            runtime.isKicking = false
+            runtime.kickDistance = nil
+            runtime.currentGoalkeeper = nil
+        end
+    end)
 
     local zoneId = data.currentZone
-    local zone = GameConfig.Zones[zoneId]
     local distance = runtime.kickDistance
     local goalkeeper = runtime.currentGoalkeeper
     local ballData = GameConfig.BallShop[data.ballLevel]
     local ballMultiplier = ballData and ballData.multiplier or 1
+    local maxKickDistance = GameConfig.CalculateMaxKickDistance(data.power, zoneId)
+    local outOfRange = distance > (maxKickDistance + 1)
 
-    -- Goal streak tracking
+    if indicatorZone ~= "green" and indicatorZone ~= "yellow" and indicatorZone ~= "red" then
+        indicatorZone = "red"
+    end
+
     if not runtime.goalStreak then runtime.goalStreak = 0 end
-
     PlayerData.IncrementKicks(player)
 
-    local result = "miss" -- por defecto
+    local result = "miss"
     local coinsEarned = 0
     local capturedBrainrot = nil
 
-    -- Validar que indicatorZone es válido
-    if indicatorZone ~= "green" and indicatorZone ~= "yellow" and indicatorZone ~= "red" then
-        indicatorZone = "red" -- fallback seguro
-    end
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    local goalModel, goalZone = getGoalObjects(zoneId)
+    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+    local revealedGoalkeeper = zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper")
 
-    if indicatorZone == "red" then
-        -- Zona roja: balón no llega a portería
-        result = "miss"
-        runtime.goalStreak = 0
+    if not outOfRange and hrp and goalModel then
+        local startPos = hrp.Position + Vector3.new(0, 2, 0)
+        local goalCFrame = goalModel:GetPivot()
+        local goalCenter = goalZone and goalZone.Position or (goalCFrame.Position + Vector3.new(0, 3, 0))
 
-    elseif indicatorZone == "green" then
-        -- Zona verde: gol seguro SI tienes potencia suficiente para el portero
-        if goalkeeper.isBoss and data.power < goalkeeper.minPower then
-            -- Boss: no tienes suficiente potencia, te para seguro
-            result = "saved"
-            runtime.goalStreak = 0
-        else
-            result = "goal"
-            runtime.goalStreak = runtime.goalStreak + 1
-            local streakBonus = 1 + (runtime.goalStreak - 1) * 0.1 -- 10% per consecutive goal
-            coinsEarned = math.floor(GameConfig.CalculateGoalCoins(distance, zoneId, ballMultiplier, data.rebirthMultiplier) * streakBonus)
-            capturedBrainrot = goalkeeper
-            PlayerData.AddCoins(player, coinsEarned)
-            PlayerData.AddBrainrot(player, goalkeeper.id)
-            PlayerData.IncrementGoals(player)
+        local aimVector = Vector3.new(goalCenter.X - startPos.X, 0, goalCenter.Z - startPos.Z)
+        if aimVector.Magnitude < 0.001 then
+            local look = hrp.CFrame.LookVector
+            aimVector = Vector3.new(look.X, 0, look.Z)
         end
+        aimVector = aimVector.Unit
 
-    elseif indicatorZone == "yellow" then
-        -- Zona amarilla: probabilidad de gol basada en suerte (distancia)
-        if goalkeeper.isBoss and data.power < goalkeeper.minPower then
-            -- Boss: sin potencia suficiente, siempre para
-            result = "saved"
-            runtime.goalStreak = 0
-        else
-            local goalProb = GameConfig.CalculateYellowGoalProbability(distance, zoneId)
-            if math.random() < goalProb then
+        local spreadDeg = SHOT_SPREAD_BY_ZONE[indicatorZone] or SHOT_SPREAD_BY_ZONE.red
+        if indicatorZone == "green" then
+            spreadDeg = 0
+        end
+        local spreadRad = math.rad((math.random() * 2 - 1) * spreadDeg)
+        local shotDir = (CFrame.fromAxisAngle(Vector3.new(0, 1, 0), spreadRad):VectorToWorldSpace(aimVector)).Unit
+
+        local reach = maxKickDistance * (SHOT_POWER_MULTIPLIER[indicatorZone] or 0.8)
+        local targetXZ = Vector3.new(startPos.X, 0, startPos.Z) + shotDir * reach
+        local targetPos = Vector3.new(targetXZ.X, math.max(2, goalCenter.Y), targetXZ.Z)
+        local flightTime = math.clamp(reach / 42, 0.35, 1.2)
+        local g = workspace.Gravity
+        local velocity = (targetPos - startPos + Vector3.new(0, 0.5 * g * flightTime * flightTime, 0)) / flightTime
+
+        local ball = Instance.new("Part")
+        ball.Name = "ServerKickBall"
+        ball.Shape = Enum.PartType.Ball
+        ball.Size = Vector3.new(1.2, 1.2, 1.2)
+        ball.Material = Enum.Material.SmoothPlastic
+        ball.Color = ballData and ballData.color or Color3.fromRGB(255, 255, 255)
+        ball.CFrame = CFrame.new(startPos)
+        ball.Anchored = false
+        ball.CanCollide = false
+        ball.CanTouch = false
+        ball.Parent = workspace
+        ball:SetNetworkOwner(nil)
+        ball.AssemblyLinearVelocity = velocity
+        Debris:AddItem(ball, 4)
+
+        local elapsed = 0
+        while ball.Parent and elapsed < 2.8 do
+            elapsed += task.wait(0.03)
+            local pos = ball.Position
+
+            if goalZone and isPointInsidePart(pos, goalZone) then
                 result = "goal"
-                runtime.goalStreak = runtime.goalStreak + 1
-                local streakBonus = 1 + (runtime.goalStreak - 1) * 0.1
-                coinsEarned = math.floor(GameConfig.CalculateGoalCoins(distance, zoneId, ballMultiplier, data.rebirthMultiplier) * streakBonus)
-                capturedBrainrot = goalkeeper
-                PlayerData.AddCoins(player, coinsEarned)
-                PlayerData.AddBrainrot(player, goalkeeper.id)
-                PlayerData.IncrementGoals(player)
-            else
+                break
+            end
+
+            if indicatorZone ~= "green" and isBallSaved(revealedGoalkeeper, pos) then
                 result = "saved"
                 runtime.goalStreak = 0
+                break
             end
         end
+    else
+        result = "miss"
+        runtime.goalStreak = 0
     end
 
-    -- Efectos visuales en el mundo 3D
-    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
-    if zoneModel then
-        local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
-        if goal then
-            local goalPos = goal:GetPivot()
-            if result == "goal" then
-                BrainrotSystem.PlayGoalEffect(goalPos)
-            elseif result == "saved" then
-                local gk = zoneModel:FindFirstChild("RevealedGoalkeeper")
-                if gk then
-                    BrainrotSystem.PlaySaveAnimation(gk)
-                end
+    if indicatorZone == "green" and not outOfRange then
+        result = "goal"
+    end
+
+    if result == "goal" then
+        runtime.goalStreak = runtime.goalStreak + 1
+        local streakBonus = 1 + (runtime.goalStreak - 1) * 0.1
+        coinsEarned = math.floor(GameConfig.CalculateGoalCoins(distance, zoneId, ballMultiplier, data.rebirthMultiplier) * streakBonus)
+        capturedBrainrot = goalkeeper
+        PlayerData.AddCoins(player, coinsEarned)
+        PlayerData.AddBrainrot(player, goalkeeper.id)
+        PlayerData.IncrementGoals(player)
+    elseif result ~= "saved" then
+        runtime.goalStreak = 0
+    end
+
+    if zoneModel and goalModel then
+        local goalPos = goalModel:GetPivot()
+        if result == "goal" then
+            BrainrotSystem.PlayGoalEffect(goalPos)
+        elseif result == "saved" then
+            local gk = zoneModel:FindFirstChild("RevealedGoalkeeper")
+            if gk then
+                BrainrotSystem.PlaySaveAnimation(gk)
             end
         end
     end
@@ -289,6 +386,9 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
             coinsPerSec = capturedBrainrot.coinsPerSec,
         } or nil,
         distance = distance,
+        maxKickDistance = maxKickDistance,
+        outOfRange = outOfRange,
+        useServerPhysics = true,
         goalkeeperName = goalkeeper.name,
         goalStreak = runtime.goalStreak,
     })
@@ -302,6 +402,7 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
 
     -- Reset estado de patada
     runtime.isKicking = false
+    runtime.kickLockToken = nil
     runtime.kickDistance = nil
     runtime.currentGoalkeeper = nil
 end)

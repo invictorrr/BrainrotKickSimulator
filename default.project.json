@@ -8,6 +8,9 @@
     "ServerScriptService": {
       "$path": "src/server"
     },
+    "ServerStorage": {
+      "$path": "src/storage"
+    },
     "StarterGui": {
       "$properties": {
         "ScreenOrientation": "Sensor"

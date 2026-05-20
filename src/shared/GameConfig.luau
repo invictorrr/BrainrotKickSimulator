@@ -17,7 +17,120 @@ GameConfig.Rarities = {
 -- ═══════════════════════════════════════════
 -- BRAINROTS (Ultimate Brainrot Pack v1.1 → ServerStorage.BrainrotModels)
 -- ═══════════════════════════════════════════
-local BrainrotPackManifest = require(script.Parent.BrainrotPackManifest)
+local DEFAULT_BRAINROT_PACK = {
+	"67",
+	"69",
+	"Agarrini La Palini",
+	"Alessio",
+	"Avocadini Antilopini",
+	"AvocadiniGuffo",
+	"BalerinaCapucina",
+	"Ballerino lololo",
+	"Bambini Crostini",
+	"Banana Dancana",
+	"Bananita Dolphinita",
+	"Ben",
+	"BlueberrinniOctopusini",
+	"Bobrito Bandito",
+	"BombardinoCrocodilo",
+	"BombombiniGusini",
+	"Boneca Ambalabu",
+	"Brr Brr Patapim",
+	"BrrBicusDicus",
+	"BurbalolliLulilolli",
+	"Cachorrito Melonito",
+	"Cacto Hipopotamo",
+	"Cappuccino Assassino",
+	"CavalloVirtuoso",
+	"ChefCrabracadabra",
+	"Chicleteira Bicicleteira",
+	"Chicleteirina Bicicleteirina",
+	"ChillinChili",
+	"ChimpanziniBananini",
+	"Cocofanto Elefanto",
+	"Dragon Cannelloni",
+	"Esok Sekolah",
+	"Espresso Signora",
+	"Fluri Flura",
+	"FrigoCamelo",
+	"GanganzelliTrulala",
+	"Gangster Footera",
+	"Garama",
+	"Gattatino Nyanino",
+	"GiraffaCelestre",
+	"GlorboFruttodrillo",
+	"GorilloWatermelondrillo",
+	"Graipuss Medussi",
+	"Happy Banana Cat",
+	"Illuminati",
+	"Job Job Job Sahur",
+	"Karkerkar Kurkur",
+	"Ketchuru and Musturu",
+	"Ketupat Kepat",
+	"La Grande Combinasion",
+	"La Vaca Saturno Saturnita",
+	"Lerulerulerule",
+	"LioneloCactuseli",
+	"Lirili Larila",
+	"Los Tralalelitos",
+	"Madungdung",
+	"Mateo",
+	"Meowl",
+	"Noo my examine",
+	"Noobini Pizzanini",
+	"Nuclearo Dinossauro",
+	"Odin Din Din Dun",
+	"OrangutiniAnanassini",
+	"Orcalero Orcala",
+	"Orcalita Orcala",
+	"Pakrahmatmamat",
+	"Pakrahmatmatina",
+	"PandacciniBananini",
+	"Pepe Frogy",
+	"Pipi Kiwi",
+	"PipiPotato",
+	"Pot Hotspot",
+	"Quesadilla Crocodila",
+	"RhinoToasterino",
+	"Salamino Penguino",
+	"Sigma Boy",
+	"Skibidi Toilet",
+	"Smurf Cat",
+	"StrawberrelliFlamingelli",
+	"Strawberry Elephant",
+	"Svinina Bombardino",
+	"Swag Soda",
+	"Ta Ta Ta Ta Sahur",
+	"Talpa Di Fero",
+	"TicTac Sahur",
+	"Tigroligre Frutonni",
+	"Tim Cheese",
+	"TirilikalikaTirilikalako",
+	"Torrtuginni Dragonfrutini",
+	"Tralaledon",
+	"TralaleroTralala",
+	"Tric Trac Barabum",
+	"Triplito Tralalelitos",
+	"Trippi Troppi",
+	"Trippi Troppi Troppa Trippa",
+	"Trollface",
+	"Trulimero Trulicina",
+	"Tung Tung Tung Sahur",
+	"Yess My Examine",
+	"ZibraZubraZibralini",
+}
+
+local BrainrotPackManifest = DEFAULT_BRAINROT_PACK
+do
+	local ok, loaded = pcall(function()
+		return require(script.Parent.BrainrotPackManifest)
+	end)
+	if ok and type(loaded) == "table" and #loaded > 0 then
+		BrainrotPackManifest = loaded
+	else
+		warn("[GameConfig] BrainrotPackManifest inválido; usando fallback embebido.")
+	end
+end
 
 local BOSS_BY_ZONE = {
 	[1] = "Cappuccino Assassino",
@@ -81,8 +194,8 @@ GameConfig.Zones = {
         maxDistance = 80,       -- studs desde la portería
         minDistance = 15,       -- distancia mínima (punto de penalty)
         penaltyDistance = 15,   -- punto de penalty
-        goalWidth = 12,
-        goalHeight = 8,
+        goalWidth = 24,
+        goalHeight = 14,
         baseCoinsPerGoal = 5,
         distanceCoinMultiplier = 0.5, -- coins extra por stud de distancia
     },
@@ -92,8 +205,8 @@ GameConfig.Zones = {
         maxDistance = 100,
         minDistance = 20,
         penaltyDistance = 20,
-        goalWidth = 10,
-        goalHeight = 7,
+        goalWidth = 22,
+        goalHeight = 13,
         baseCoinsPerGoal = 15,
         distanceCoinMultiplier = 0.8,
     },
@@ -103,8 +216,8 @@ GameConfig.Zones = {
         maxDistance = 120,
         minDistance = 25,
         penaltyDistance = 25,
-        goalWidth = 8,
-        goalHeight = 6,
+        goalWidth = 20,
+        goalHeight = 12,
         baseCoinsPerGoal = 40,
         distanceCoinMultiplier = 1.2,
     },
@@ -170,6 +283,12 @@ GameConfig.Indicator = {
     maxGreenSize = 0.60,       -- máximo 60% de verde
 }
 
+-- Alcance de disparo en "metros/studs" según potencia.
+-- Potencia 1 => solo llega al área blanca (penaltyDistance).
+GameConfig.KickPower = {
+    studsPerPower = 5, -- +5 studs de alcance por nivel de potencia extra
+}
+
 -- ═══════════════════════════════════════════
 -- HELPER FUNCTIONS
 -- ═══════════════════════════════════════════
@@ -213,21 +332,32 @@ function GameConfig.GetGoalPosition(zoneId: number): Vector3
 	return GameConfig.GetGoalCFrame(zoneId).Position
 end
 
--- Distancia = separación real jugador-portería en el plano XZ de la zona.
+-- Distancia = profundidad hacia la portería (eje -Z local del arco).
+-- Esto evita penalizar al jugador por abrirse a los lados.
 function GameConfig.ComputeKickDistance(playerPosition: Vector3, goalCFrame: CFrame, zoneId: number): number
 	local zone = GameConfig.Zones[zoneId]
 	if not zone then
 		return 15
 	end
 
-	local goalPos = goalCFrame.Position
-	local planarDelta = Vector3.new(
-		playerPosition.X - goalPos.X,
-		0,
-		playerPosition.Z - goalPos.Z
-	)
-	local distance = math.floor(planarDelta.Magnitude + 0.5)
+	local localPos = goalCFrame:PointToObjectSpace(playerPosition)
+	local depth = -localPos.Z
+	if depth < 0 then
+		depth = 0
+	end
+	local distance = math.floor(depth + 0.5)
 	return math.clamp(distance, zone.minDistance, zone.maxDistance)
+end
+
+function GameConfig.CalculateMaxKickDistance(playerPower: number, zoneId: number): number
+    local zone = GameConfig.Zones[zoneId]
+    if not zone then
+        return 15
+    end
+    local baseReach = zone.penaltyDistance or zone.minDistance
+    local extraReach = math.max(0, (playerPower or 1) - 1) * GameConfig.KickPower.studsPerPower
+    local reach = baseReach + extraReach
+    return math.clamp(reach, zone.minDistance, zone.maxDistance)
 end
 
 -- Calcula el tamaño de las zonas del indicador según potencia y distancia

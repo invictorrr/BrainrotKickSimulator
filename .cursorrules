@@ -8,6 +8,7 @@ Juego de Roblox llamado "Brainrot Kick Simulator". Lenguaje: Luau (superconjunto
 src/
   server/          → ServerScriptService (Scripts que corren en el servidor)
     MainGame.server.luau
+    BrainrotPackSetup.server.luau
     BaseManager.server.luau
     PlayerData.luau       (ModuleScript compartido en servidor)
     BrainrotSystem.luau   (ModuleScript)
@@ -21,8 +22,12 @@ src/
 
   shared/          → ReplicatedStorage (accesible desde servidor y cliente)
     GameConfig.luau
+    BrainrotPackManifest.luau
     SoundConfig.luau
     RemoteEvents/    (archivos .rbxm — NO editar manualmente)
+
+  storage/         → ServerStorage
+    UltimateBrainrotPack.rbxm   (Ultimate Brainrot Pack v1.1 — porteros)
 
   gui/             → StarterGui
     BrainrotGoalKickUI.rbxm   (archivo binario — NO editar manualmente)

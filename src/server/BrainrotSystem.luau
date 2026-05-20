@@ -24,13 +24,75 @@ local function getBrainrotModelsFolder(): Instance?
 		return folder
 	end
 
-	return workspace:FindFirstChild("brainrotsmodels")
+	return nil
 end
 
 local brainrotsModels = getBrainrotModelsFolder()
 
 -- Cache de modelos de brainrot
 local modelCache = {}
+
+local function iterCandidateModels(root: Instance): { Model }
+    local candidates = {}
+    for _, inst in ipairs(root:GetDescendants()) do
+        if inst:IsA("Model") then
+            table.insert(candidates, inst)
+        end
+    end
+    return candidates
+end
+
+local function findIdleAnimation(model: Instance): Animation?
+    local firstAnimation = nil
+    for _, inst in ipairs(model:GetDescendants()) do
+        if inst:IsA("Animation") then
+            firstAnimation = firstAnimation or inst
+            if string.find(string.lower(inst.Name), "idle", 1, true) then
+                return inst
+            end
+        end
+    end
+    return firstAnimation
+end
+
+function BrainrotSystem.StartIdleAnimation(model: Instance?)
+    if not model then return end
+
+    local animation = findIdleAnimation(model)
+    if not animation then return end
+
+    local animator = nil
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        animator = humanoid:FindFirstChildOfClass("Animator")
+        if not animator then
+            animator = Instance.new("Animator")
+            animator.Parent = humanoid
+        end
+    else
+        local controller = model:FindFirstChildOfClass("AnimationController")
+        if not controller then
+            controller = Instance.new("AnimationController")
+            controller.Parent = model
+        end
+        animator = controller:FindFirstChildOfClass("Animator")
+        if not animator then
+            animator = Instance.new("Animator")
+            animator.Parent = controller
+        end
+    end
+
+    if not animator then return end
+
+    local ok, track = pcall(function()
+        return animator:LoadAnimation(animation)
+    end)
+    if ok and track then
+        track.Looped = true
+        track.Priority = Enum.AnimationPriority.Idle
+        track:Play(0.1)
+    end
+end
 
 function BrainrotSystem.GetBrainrotModel(brainrotId)
     if modelCache[brainrotId] then
@@ -61,10 +123,10 @@ function BrainrotSystem.GetBrainrotModel(brainrotId)
 
     local lookupName = brainrotData.modelName or brainrotData.name
     local targetNorm = normalizeName(lookupName)
-    local model = brainrotsModels:FindFirstChild(lookupName)
+    local model = brainrotsModels:FindFirstChild(lookupName, true)
     if not model then
-        for _, child in brainrotsModels:GetChildren() do
-            if child:IsA("Model") and normalizeName(child.Name) == targetNorm then
+        for _, child in ipairs(iterCandidateModels(brainrotsModels)) do
+            if normalizeName(child.Name) == targetNorm then
                 model = child
                 break
             end
@@ -213,6 +275,7 @@ local function createRevealedGoalkeeper(brainrotId, position, isBoss)
                 part.CanCollide = false
             end
         end
+        BrainrotSystem.StartIdleAnimation(model)
         if isBoss then
             local aura = Instance.new("Part")
             aura.Name = "BossAura"

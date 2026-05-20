@@ -21,14 +21,47 @@ local function hasModelNamed(folder: Folder, modelName: string): boolean
 	return false
 end
 
-local function moveModelsIntoFolder(source: Instance, modelsFolder: Folder)
-	for _, child in ipairs(source:GetChildren()) do
+local function chooseBrainrotVariant(brainrotFolder: Instance): Model?
+	if not brainrotFolder then
+		return nil
+	end
+
+	-- Preferimos "Normal" para usar una sola variante por brainrot
+	local normalVariant = brainrotFolder:FindFirstChild("Normal")
+	if normalVariant and normalVariant:IsA("Model") then
+		return normalVariant
+	end
+
+	for _, child in ipairs(brainrotFolder:GetChildren()) do
 		if child:IsA("Model") then
-			if not hasModelNamed(modelsFolder, child.Name) then
-				child.Parent = modelsFolder
+			return child
+		end
+	end
+	return nil
+end
+
+local function moveModelsIntoFolder(source: Instance, modelsFolder: Folder)
+	local workspacePack = source:FindFirstChild("Ungroup in Workspace")
+	local brainrotsFolder = workspacePack and workspacePack:FindFirstChild("Brainrots")
+
+	-- Estructura esperada del Ultimate Pack: Brainrots/<Name>/<VariantModel>
+	if brainrotsFolder and brainrotsFolder:IsA("Folder") then
+		for _, brainrotFolder in ipairs(brainrotsFolder:GetChildren()) do
+			local variant = chooseBrainrotVariant(brainrotFolder)
+			if variant and not hasModelNamed(modelsFolder, brainrotFolder.Name) then
+				local clone = variant:Clone()
+				clone.Name = brainrotFolder.Name
+				clone.Parent = modelsFolder
 			end
-		elseif child:IsA("Folder") then
-			moveModelsIntoFolder(child, modelsFolder)
+		end
+		return
+	end
+
+	-- Fallback genérico
+	for _, child in ipairs(source:GetDescendants()) do
+		if child:IsA("Model") and not hasModelNamed(modelsFolder, child.Name) then
+			local clone = child:Clone()
+			clone.Parent = modelsFolder
 		end
 	end
 end
