@@ -1,0 +1,93 @@
+# Brainrot Kick Simulator — Cursor Rules
+
+## Proyecto
+Juego de Roblox llamado "Brainrot Kick Simulator". Lenguaje: Luau (superconjunto de Lua 5.1 con tipos opcionales). Motor: Roblox Engine. Gestión de proyecto: Rojo 7.7.0-rc.1 + Git.
+
+## Estructura de archivos
+```
+src/
+  server/          → ServerScriptService (Scripts que corren en el servidor)
+    MainGame.server.luau
+    BaseManager.server.luau
+    PlayerData.luau       (ModuleScript compartido en servidor)
+    BrainrotSystem.luau   (ModuleScript)
+
+  client/          → StarterPlayer/StarterPlayerScripts (LocalScripts)
+    KickClient.client.luau
+    ShopClient.client.luau
+    BaseClient.client.luau
+    ZoneClient.client.luau
+    EffectsClient.client.luau
+
+  shared/          → ReplicatedStorage (accesible desde servidor y cliente)
+    GameConfig.luau
+    SoundConfig.luau
+    RemoteEvents/    (archivos .rbxm — NO editar manualmente)
+
+  gui/             → StarterGui
+    BrainrotGoalKickUI.rbxm   (archivo binario — NO editar manualmente)
+
+  world/           → Workspace (modelos 3D del mapa)
+    *.rbxm   (archivos binarios — NO editar manualmente)
+```
+
+## Convenciones de nombrado de archivos Rojo
+- `nombre.server.luau` → Script (corre en servidor)
+- `nombre.client.luau` → LocalScript (corre en cliente)
+- `nombre.luau` → ModuleScript (requiere `return` al final)
+- `*.rbxm` → modelo binario de Roblox, no editar como texto
+
+## Flujo de trabajo CRÍTICO
+Edita SIEMPRE los archivos `.luau` directamente. NUNCA uses el MCP de Roblox Studio para escribir cambios — esos cambios no se guardan en archivos y se pierden en el siguiente sync.
+
+El pipeline completo es:
+  1. Editas un `.luau` aquí en Cursor
+  2. Rojo serve (corriendo en la PC del dev) detecta el cambio
+  3. Studio se actualiza automáticamente en tiempo real
+  4. Haces commit + push a GitHub
+  5. autopull.ps1 detecta el push y hace git pull en la máquina local
+
+## Luau — sintaxis y patrones importantes
+```lua
+-- Tipos opcionales (Luau, no Lua estándar)
+local function suma(a: number, b: number): number
+    return a + b
+end
+
+-- Acceso a servicios de Roblox
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+-- ModuleScript: siempre termina con return
+local MiModulo = {}
+function MiModulo.hacerAlgo() end
+return MiModulo
+
+-- RemoteEvents (en shared/RemoteEvents/)
+local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local KickBall = RemoteEvents:WaitForChild("KickBall")
+
+-- Servidor: FireClient / OnServerEvent
+KickBall.OnServerEvent:Connect(function(player, data) end)
+KickBall:FireClient(player, data)
+
+-- Cliente: FireServer / OnClientEvent
+KickBall:FireServer(data)
+KickBall.OnClientEvent:Connect(function(data) end)
+```
+
+## RemoteEvents disponibles
+KickBall, GoalResult, SelectGoalkeeper, BuyPower, BuyBall, Rebirth,
+PlaceBrainrot, UpdateStats, ClaimBaseIncome, SetKickPosition,
+ShowGoalkeepers, UpdateBrainrotList, RemoveBrainrotFromBase,
+ZoneTeleport, PlaySound, CameraEffect
+
+## Reglas generales
+- No añadas dependencias externas (no npm, no paquetes — Roblox es sandboxed)
+- No uses `require()` con rutas de string; usa siempre referencias a instancias
+- `task.wait()` en vez de `wait()` (deprecated)
+- `task.spawn()` en vez de `coroutine.wrap()` para código asíncrono simple
+- Los prints de debug se ven en la Output window de Studio
+- No toques archivos `.rbxm` — son binarios generados por Rojo syncback
+- No toques `default.project.json` salvo que estés añadiendo nuevos servicios al proyecto
