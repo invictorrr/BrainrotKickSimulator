@@ -541,6 +541,13 @@ local function showCooldownBar(duration)
     })
     tween:Play()
     
+    -- Cancel previous tween's Completed callback so it cant hide the bar early
+    -- (new call to showCooldownBar while a tween is still running would otherwise
+    -- leave the bar visible after the first tween completes)
+    tween.Completed:Connect(function()
+        cooldownBar.Visible = false
+    end)
+    
     -- Change color as it fills
     task.spawn(function()
         local elapsed = 0
@@ -554,10 +561,6 @@ local function showCooldownBar(duration)
                 cooldownFill.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
             end
         end
-    end)
-    
-    tween.Completed:Connect(function()
-        cooldownBar.Visible = false
     end)
 end
 
@@ -772,6 +775,19 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
         streakBonusMultiplier = 1
         updateStreakDisplay()
     end
+
+    -- Resetear estado del indicador para que el jugador pueda patear de nuevo
+    -- Esto es necesario porque el servidor responde con GoalResult SIN nueva petición
+    -- de kick — el ciclo acaba en el servidor, no en el cliente.
+    task.delay(0.5, function()
+        indicatorActive = false
+        if indicatorFrame then
+            indicatorFrame.Visible = false
+        end
+        if kickMarker then
+            kickMarker.Transparency = 0.4
+        end
+    end)
 end)
 
 -- ═══════════════════════════════════════════
