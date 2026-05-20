@@ -37,13 +37,24 @@ local function setupZone(zoneId)
 
     local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
     if zoneModel then
-        -- Zona ya existe (creada manualmente), solo verificar portería
+        -- Zona ya existe. Comprobamos la portería: si es de la versión antigua
+        -- (sin el atributo GoalDepth) la reemplazamos por la caja cerrada.
         local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
+        local goalPos = (goal and goal:IsA("Model")) and goal:GetPivot()
+            or zonePositions[zoneId]
+            or CFrame.new(0, 0, 0)
+
+        local needsRebuild = false
         if not goal then
-            -- Crear portería si falta
-            local goalPos = zonePositions[zoneId] or CFrame.new(0, 0, 0)
-            goal = BrainrotSystem.CreateGoal(zoneId, goalPos)
-            if goal then goal.Parent = zoneModel end
+            needsRebuild = true
+        elseif not goal:GetAttribute("GoalDepth") then
+            needsRebuild = true
+        end
+
+        if needsRebuild then
+            if goal then goal:Destroy() end
+            local newGoal = BrainrotSystem.CreateGoal(zoneId, goalPos)
+            if newGoal then newGoal.Parent = zoneModel end
         end
         return
     end
@@ -359,35 +370,48 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         -- Spawn de la pelota 2 studs delante del jugador, en dirección al arco
         local startPos = hrp.Position + (toGoalDir * 2) + Vector3.new(0, 1, 0)
 
-        local aimVector = toGoalDir
+        -- Objetivo del tiro:
+        --   Green → escuadra (top corner) aleatoria izquierda/derecha
+        --   Yellow/Red → centro con desviación (spread)
+        local targetWorldPos
+        local flightTime
+        if indicatorZone == "green" and goalCFrame then
+            local goalWidth = (goalModel and goalModel:GetAttribute("GoalWidth")) or 20
+            local goalHeight = (goalModel and goalModel:GetAttribute("GoalHeight")) or 12
+            local side = (math.random() < 0.5) and -1 or 1
+            local cornerLocal = Vector3.new(
+                side * (goalWidth / 2 - 1.5),
+                goalHeight - 1.5,
+                0.6 -- ligeramente dentro del arco para que sí entre
+            )
+            targetWorldPos = goalCFrame:PointToWorldSpace(cornerLocal)
+            -- Tiro fuerte y directo: flight time corto = trayectoria casi
+            -- recta hacia la escuadra (rocket shot)
+            flightTime = math.clamp(distance / 130, 0.32, 0.55)
+        else
+            -- Spread horizontal según indicador
+            local spreadDeg = SHOT_SPREAD_BY_ZONE[indicatorZone] or SHOT_SPREAD_BY_ZONE.red
+            local spreadRad = math.rad((math.random() * 2 - 1) * spreadDeg)
+            local shotDir = (CFrame.fromAxisAngle(Vector3.new(0, 1, 0), spreadRad):VectorToWorldSpace(toGoalDir)).Unit
 
-        -- Spread según indicador (verde = 0, rojo = mucho)
-        local spreadDeg = SHOT_SPREAD_BY_ZONE[indicatorZone] or SHOT_SPREAD_BY_ZONE.red
-        local spreadRad = math.rad((math.random() * 2 - 1) * spreadDeg)
-        local shotDir = (CFrame.fromAxisAngle(Vector3.new(0, 1, 0), spreadRad):VectorToWorldSpace(aimVector)).Unit
+            local reachMultiplier = SHOT_POWER_MULTIPLIER[indicatorZone] or 0.55
+            local powerReach = maxKickDistance * reachMultiplier
+            local reach = math.min(distance, powerReach)
+            if outOfRange then
+                reach = powerReach
+            end
+            reach = math.max(reach, 5)
 
-        -- Alcance: maxKickDistance es justo lo que la potencia da.
-        --   En green con potencia justa, llega al arco.
-        --   En outOfRange (jugador muy lejos), la pelota cae corta.
-        local reachMultiplier = SHOT_POWER_MULTIPLIER[indicatorZone] or 0.55
-        local powerReach = maxKickDistance * reachMultiplier
-        local reach = math.min(distance, powerReach)
-        if outOfRange then
-            -- La pelota se queda corta. Llega justo a maxKickDistance.
-            reach = powerReach
+            local targetXZ = Vector3.new(startPos.X, 0, startPos.Z) + shotDir * reach
+            local targetY = (reach >= distance - 1 and goalCenter)
+                and math.clamp(goalCenter.Y, 2, goalCenter.Y)
+                or 1
+            targetWorldPos = Vector3.new(targetXZ.X, targetY, targetXZ.Z)
+            flightTime = math.clamp(reach / 42, 0.5, 1.4)
         end
-        reach = math.max(reach, 5) -- mínimo para que el balón haga algo
 
-        local targetXZ = Vector3.new(startPos.X, 0, startPos.Z) + shotDir * reach
-        -- Altura objetivo: si llega al arco, apunta a un punto válido; si no,
-        -- al suelo donde caería naturalmente.
-        local targetY = (reach >= distance - 1 and goalCenter)
-            and math.clamp(goalCenter.Y, 2, goalCenter.Y)
-            or 1
-        local targetPos = Vector3.new(targetXZ.X, targetY, targetXZ.Z)
-        local flightTime = math.clamp(reach / 42, 0.45, 1.4)
         local g = workspace.Gravity
-        local velocity = (targetPos - startPos + Vector3.new(0, 0.5 * g * flightTime * flightTime, 0)) / flightTime
+        local velocity = (targetWorldPos - startPos + Vector3.new(0, 0.5 * g * flightTime * flightTime, 0)) / flightTime
 
         -- Eliminar pelota previa de este jugador y crear la nueva
         clearActiveBall(player)
@@ -408,12 +432,25 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         -- Simulación de detección de gol/parada (no controla la pelota,
         -- solo observa su posición real para decidir el resultado).
         local elapsed = 0
+        local trackedBall = ball
         while ball.Parent and elapsed < 2.8 do
             elapsed += task.wait(0.04)
             local pos = ball.Position
 
             if goalZone and isPointInsidePart(pos, goalZone) then
                 result = "goal"
+                -- Amortiguar progresivamente para que se quede dentro de la
+                -- red en vez de salir disparada. Se hace en una tarea aparte
+                -- para no bloquear el resto del handler.
+                task.spawn(function()
+                    local t = 0
+                    while trackedBall.Parent and t < 1.5 do
+                        local dt = task.wait(0.05)
+                        t += dt
+                        trackedBall.AssemblyLinearVelocity =
+                            trackedBall.AssemblyLinearVelocity * 0.55
+                    end
+                end)
                 break
             end
 

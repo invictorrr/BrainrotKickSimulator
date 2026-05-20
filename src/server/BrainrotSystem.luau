@@ -330,6 +330,11 @@ local function createRevealedGoalkeeper(brainrotId, position, isBoss)
 end
 
 -- Crear porteria para una zona
+-- Estructura cerrada:
+--   Postes (LeftPost / RightPost) y Crossbar como travesaños sólidos.
+--   Net (red trasera), LeftSideWall, RightSideWall y GoalFloor con
+--   colisión activada para que el balón quede atrapado dentro al hacer gol.
+--   GoalZone invisible para detección del punto de gol.
 function BrainrotSystem.CreateGoal(zoneId, position)
     local zone = GameConfig.Zones[zoneId]
     if not zone then return nil end
@@ -337,6 +342,12 @@ function BrainrotSystem.CreateGoal(zoneId, position)
     goal.Name = "Goal_Zone" .. tostring(zoneId)
     local width = zone.goalWidth
     local height = zone.goalHeight
+    local depth = 4 -- profundidad de la caja del arco
+
+    -- Propiedades físicas de la red: alta fricción, muy poca elasticidad
+    -- para que el balón se quede dentro y no rebote violentamente.
+    local netPhysics = PhysicalProperties.new(0.5, 2.5, 0.05, 100, 100)
+
     local leftPost = Instance.new("Part")
     leftPost.Name = "LeftPost"
     leftPost.Size = Vector3.new(0.5, height, 0.5)
@@ -345,6 +356,7 @@ function BrainrotSystem.CreateGoal(zoneId, position)
     leftPost.Material = Enum.Material.SmoothPlastic
     leftPost.Anchored = true
     leftPost.Parent = goal
+
     local rightPost = Instance.new("Part")
     rightPost.Name = "RightPost"
     rightPost.Size = Vector3.new(0.5, height, 0.5)
@@ -353,6 +365,7 @@ function BrainrotSystem.CreateGoal(zoneId, position)
     rightPost.Material = Enum.Material.SmoothPlastic
     rightPost.Anchored = true
     rightPost.Parent = goal
+
     local crossbar = Instance.new("Part")
     crossbar.Name = "Crossbar"
     crossbar.Size = Vector3.new(width + 0.5, 0.5, 0.5)
@@ -361,25 +374,86 @@ function BrainrotSystem.CreateGoal(zoneId, position)
     crossbar.Material = Enum.Material.SmoothPlastic
     crossbar.Anchored = true
     crossbar.Parent = goal
+
+    -- Red trasera (back wall, sólida pero amortiguada)
     local net = Instance.new("Part")
     net.Name = "Net"
-    net.Size = Vector3.new(width, height, 2)
-    net.CFrame = position * CFrame.new(0, height / 2, 1.5)
-    net.Color = Color3.fromRGB(255, 255, 255)
+    net.Size = Vector3.new(width, height, 0.5)
+    net.CFrame = position * CFrame.new(0, height / 2, depth)
+    net.Color = Color3.fromRGB(220, 220, 220)
     net.Material = Enum.Material.SmoothPlastic
-    net.Transparency = 0.7
+    net.Transparency = 0.55
     net.Anchored = true
-    net.CanCollide = false
+    net.CanCollide = true
+    net.CustomPhysicalProperties = netPhysics
     net.Parent = goal
+
+    -- Paredes laterales (cierran el lateral entre poste y red)
+    local leftWall = Instance.new("Part")
+    leftWall.Name = "LeftSideWall"
+    leftWall.Size = Vector3.new(0.5, height, depth)
+    leftWall.CFrame = position * CFrame.new(-width / 2, height / 2, depth / 2)
+    leftWall.Color = Color3.fromRGB(220, 220, 220)
+    leftWall.Material = Enum.Material.SmoothPlastic
+    leftWall.Transparency = 0.55
+    leftWall.Anchored = true
+    leftWall.CanCollide = true
+    leftWall.CustomPhysicalProperties = netPhysics
+    leftWall.Parent = goal
+
+    local rightWall = Instance.new("Part")
+    rightWall.Name = "RightSideWall"
+    rightWall.Size = Vector3.new(0.5, height, depth)
+    rightWall.CFrame = position * CFrame.new(width / 2, height / 2, depth / 2)
+    rightWall.Color = Color3.fromRGB(220, 220, 220)
+    rightWall.Material = Enum.Material.SmoothPlastic
+    rightWall.Transparency = 0.55
+    rightWall.Anchored = true
+    rightWall.CanCollide = true
+    rightWall.CustomPhysicalProperties = netPhysics
+    rightWall.Parent = goal
+
+    -- Tapa superior (techo entre crossbar y red, evita balones que salgan
+    -- por arriba después de pegar en la escuadra)
+    local topNet = Instance.new("Part")
+    topNet.Name = "TopNet"
+    topNet.Size = Vector3.new(width, 0.5, depth)
+    topNet.CFrame = position * CFrame.new(0, height, depth / 2)
+    topNet.Color = Color3.fromRGB(220, 220, 220)
+    topNet.Material = Enum.Material.SmoothPlastic
+    topNet.Transparency = 0.55
+    topNet.Anchored = true
+    topNet.CanCollide = true
+    topNet.CustomPhysicalProperties = netPhysics
+    topNet.Parent = goal
+
+    -- Suelo dentro del arco: extiende el piso para que el balón no caiga
+    -- al vacío al cruzar la línea
+    local goalFloor = Instance.new("Part")
+    goalFloor.Name = "GoalFloor"
+    goalFloor.Size = Vector3.new(width, 1, depth + 0.5)
+    goalFloor.CFrame = position * CFrame.new(0, -0.5, depth / 2)
+    goalFloor.Color = Color3.fromRGB(50, 120, 50)
+    goalFloor.Material = Enum.Material.Grass
+    goalFloor.Anchored = true
+    goalFloor.CanCollide = true
+    goalFloor.Parent = goal
+
+    -- Zona invisible: detecta cuando el balón cruza la línea
+    -- Profundidad mayor: cubre desde la línea (z=0) hasta cerca de la red
     local goalZone = Instance.new("Part")
     goalZone.Name = "GoalZone"
-    goalZone.Size = Vector3.new(width - 1, height - 1, 2)
-    goalZone.CFrame = position * CFrame.new(0, height / 2, 0)
+    goalZone.Size = Vector3.new(width - 1, height - 1, depth - 0.5)
+    goalZone.CFrame = position * CFrame.new(0, height / 2, depth / 2)
     goalZone.Transparency = 1
     goalZone.Anchored = true
     goalZone.CanCollide = false
     goalZone.Parent = goal
+
     goal:SetAttribute("ZoneId", zoneId)
+    goal:SetAttribute("GoalWidth", width)
+    goal:SetAttribute("GoalHeight", height)
+    goal:SetAttribute("GoalDepth", depth)
     return goal
 end
 
