@@ -11,7 +11,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
-local CLIENT_VERSION = "v2026.05.20-11"
+local CLIENT_VERSION = "v2026.05.20-12"
 
 local Workspace = workspace
 local LocalCamera = Workspace.CurrentCamera
@@ -133,6 +133,9 @@ local sliderUpdateBroken = false
 -- ═══════════════════════════════════════════
 local kickPhase = "idle"
 local kickPhaseSeq = 0
+-- Forward decl: el botón "PATEAR" se crea más abajo, pero algunas funciones
+-- definidas antes necesitan poder restaurar su apariencia a "idle".
+local setKickButtonAppearance: (string) -> () = function(_) end
 local GOALKEEPER_REVEAL_DELAY = 1.8  -- segundos hasta que arranque el indicador
 local INDICATOR_TIMEOUT = 8           -- segundos antes de cancelar automáticamente
 
@@ -611,6 +614,7 @@ local function tryUnlockAfterResults()
     kickCooldownSeq += 1
     canKick = true
     kickPhase = "idle"
+    setKickButtonAppearance("idle")
     if cameraFocusActive then
         restoreCamera()
     end
@@ -622,6 +626,7 @@ local function finishKickCooldown()
     kickCooldownSeq += 1
     canKick = true
     kickPhase = "idle"
+    setKickButtonAppearance("idle")
     if cameraFocusActive then
         restoreCamera()
     end
@@ -900,6 +905,7 @@ end
 local function cancelKickToIdle()
     kickPhaseSeq += 1
     kickPhase = "idle"
+    setKickButtonAppearance("idle")
     resetKickUI(true)
     restoreCamera()
     if kickMarker then
@@ -907,65 +913,133 @@ local function cancelKickToIdle()
     end
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+-- ═══════════════════════════════════════════
+-- BOTÓN PATEAR (móvil + desktop)
+-- En vez de disparar con cualquier click/touch (que rompe el joystick
+-- en móvil), creamos un botón dedicado abajo-derecha que es el ÚNICO
+-- punto de entrada para iniciar/confirmar el tiro.
+-- ═══════════════════════════════════════════
+local kickButton = screenGui:FindFirstChild("KickButton")
+if not kickButton then
+    kickButton = Instance.new("TextButton")
+    kickButton.Name = "KickButton"
+    kickButton.Size = UDim2.new(0, 170, 0, 170)
+    kickButton.AnchorPoint = Vector2.new(1, 1)
+    kickButton.Position = UDim2.new(1, -30, 1, -30)
+    kickButton.BackgroundColor3 = Color3.fromRGB(0, 170, 70)
+    kickButton.BorderSizePixel = 0
+    kickButton.Text = "PATEAR"
+    kickButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    kickButton.Font = Enum.Font.GothamBlack
+    kickButton.TextSize = 28
+    kickButton.AutoButtonColor = false
+    kickButton.ZIndex = 9000
+    kickButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    kickButton.TextStrokeTransparency = 0.3
 
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1
-        and input.UserInputType ~= Enum.UserInputType.Touch then
-        return
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = kickButton
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 90, 30)
+    stroke.Thickness = 4
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = kickButton
+
+    kickButton.Parent = screenGui
+end
+
+setKickButtonAppearance = function(phase: string)
+    if not kickButton then return end
+    if phase == "idle" then
+        kickButton.BackgroundColor3 = Color3.fromRGB(0, 170, 70)
+        kickButton.Text = "PATEAR"
+    elseif phase == "focusing" then
+        kickButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+        kickButton.Text = "ESPERA..."
+    elseif phase == "indicator" then
+        kickButton.BackgroundColor3 = Color3.fromRGB(255, 180, 0)
+        kickButton.Text = "DISPARAR"
+    elseif phase == "firing" then
+        kickButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+        kickButton.Text = "..."
+    elseif phase == "cooldown" then
+        kickButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        kickButton.Text = "..."
+    end
+end
+setKickButtonAppearance("idle")
+
+local function startKickFlow()
+    if kickPhase ~= "idle" then return end
+    if not canKick then return end
+
+    selectedDistance = computeKickDistanceFromPlayer()
+    updateDistanceDisplay()
+
+    RemoteEvents.SetKickPosition:FireServer(selectedDistance)
+
+    kickPhase = "focusing"
+    kickPhaseSeq += 1
+    local seq = kickPhaseSeq
+    setKickButtonAppearance("focusing")
+
+    focusCameraOnGoal()
+
+    if kickMarker then
+        kickMarker.Transparency = 1
     end
 
+    if resultLabel then
+        resultLabel.Text = "Apunta al portero..."
+        resultLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+
+    task.delay(GOALKEEPER_REVEAL_DELAY, function()
+        if kickPhaseSeq ~= seq then return end
+        if kickPhase ~= "focusing" then return end
+        kickPhase = "indicator"
+        setKickButtonAppearance("indicator")
+        startIndicator()
+    end)
+
+    task.delay(GOALKEEPER_REVEAL_DELAY + INDICATOR_TIMEOUT, function()
+        if kickPhaseSeq ~= seq then return end
+        if kickPhase == "indicator" or kickPhase == "focusing" then
+            cancelKickToIdle()
+            setKickButtonAppearance("idle")
+        end
+    end)
+end
+
+local function confirmKick()
+    if kickPhase ~= "indicator" then return end
+    kickPhase = "firing"
+    kickPhaseSeq += 1
+    setKickButtonAppearance("firing")
+    stopIndicator()
+    task.delay(0.15, restoreCamera)
+end
+
+kickButton.Activated:Connect(function()
     if kickPhase == "idle" then
-        if not canKick then return end
-
-        -- Distancia = donde está el jugador AHORA (snapshot al primer click)
-        selectedDistance = computeKickDistanceFromPlayer()
-        updateDistanceDisplay()
-
-        RemoteEvents.SetKickPosition:FireServer(selectedDistance)
-
-        kickPhase = "focusing"
-        kickPhaseSeq += 1
-        local seq = kickPhaseSeq
-
-        focusCameraOnGoal()
-
-        if kickMarker then
-            kickMarker.Transparency = 1
-        end
-
-        -- Aviso visual durante focus
-        if resultLabel then
-            resultLabel.Text = "Apunta al portero..."
-            resultLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        end
-
-        -- Tras la revelación del portero, abrir el indicador
-        task.delay(GOALKEEPER_REVEAL_DELAY, function()
-            if kickPhaseSeq ~= seq then return end
-            if kickPhase ~= "focusing" then return end
-            kickPhase = "indicator"
-            startIndicator()
-        end)
-
-        -- Failsafe: si nunca llega un 2º click, volver a idle
-        task.delay(GOALKEEPER_REVEAL_DELAY + INDICATOR_TIMEOUT, function()
-            if kickPhaseSeq ~= seq then return end
-            if kickPhase == "indicator" or kickPhase == "focusing" then
-                cancelKickToIdle()
-            end
-        end)
-
+        startKickFlow()
     elseif kickPhase == "indicator" then
-        kickPhase = "firing"
-        kickPhaseSeq += 1
-        stopIndicator()
-        -- Devolver la cámara: durante el tiro el jugador ve normal
-        task.delay(0.15, restoreCamera)
+        confirmKick()
     end
 end)
 
--- InputEnded ya no dispara nada (flujo es 2-click, no mantener)
+-- Tecla F como atajo en PC para los que prefieran teclado
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode ~= Enum.KeyCode.F then return end
+    if kickPhase == "idle" then
+        startKickFlow()
+    elseif kickPhase == "indicator" then
+        confirmKick()
+    end
+end)
 
 -- ═══════════════════════════════════════════
 -- SLIDER DE DISTANCIA (solo lectura: refleja posición del jugador)
@@ -1073,6 +1147,7 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
     end
 
     kickPhase = "idle"
+    setKickButtonAppearance("idle")
     displayGoalResult(data)
 
     task.delay(0.5, function()
