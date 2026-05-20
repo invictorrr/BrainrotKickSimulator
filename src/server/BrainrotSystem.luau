@@ -5,10 +5,29 @@
 ]]
 local BrainrotSystem = {}
 
+local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig = require(ReplicatedStorage.GameConfig)
 
-local brainrotsModels = workspace:FindFirstChild("brainrotsmodels")
+local function normalizeName(name: string): string
+	return string.lower(name:gsub("%s+", ""):gsub("[^%w]", ""))
+end
+
+local function getBrainrotModelsFolder(): Instance?
+	local folder = ServerStorage:FindFirstChild("BrainrotModels")
+	if folder and #folder:GetChildren() > 0 then
+		return folder
+	end
+
+	folder = ServerStorage:WaitForChild("BrainrotModels", 10)
+	if folder and #folder:GetChildren() > 0 then
+		return folder
+	end
+
+	return workspace:FindFirstChild("brainrotsmodels")
+end
+
+local brainrotsModels = getBrainrotModelsFolder()
 
 -- Cache de modelos de brainrot
 local modelCache = {}
@@ -32,10 +51,20 @@ function BrainrotSystem.GetBrainrotModel(brainrotId)
         warn("[BrainrotSystem] No se encontro brainrot con ID: " .. tostring(brainrotId))
         return nil
     end
-    local model = brainrotsModels:FindFirstChild(brainrotData.name)
+
+    local folder = getBrainrotModelsFolder()
+    if not folder then
+        warn("[BrainrotSystem] No hay carpeta de modelos (ServerStorage.BrainrotModels o Workspace.brainrotsmodels)")
+        return nil
+    end
+    brainrotsModels = folder
+
+    local lookupName = brainrotData.modelName or brainrotData.name
+    local targetNorm = normalizeName(lookupName)
+    local model = brainrotsModels:FindFirstChild(lookupName)
     if not model then
         for _, child in brainrotsModels:GetChildren() do
-            if string.lower(child.Name) == string.lower(brainrotData.name) then
+            if child:IsA("Model") and normalizeName(child.Name) == targetNorm then
                 model = child
                 break
             end

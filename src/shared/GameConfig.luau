@@ -15,32 +15,61 @@ GameConfig.Rarities = {
 }
 
 -- ═══════════════════════════════════════════
--- BRAINROTS (referencia a modelos en Workspace.brainrotsmodels)
+-- BRAINROTS (Ultimate Brainrot Pack v1.1 → ServerStorage.BrainrotModels)
 -- ═══════════════════════════════════════════
-GameConfig.Brainrots = {
-    -- Zona 1
-    {id = "tralalero",     name = "Tralalero Tralala",       rarity = "Common",    zone = 1, coinsPerSec = 1,  minPower = 1},
-    {id = "brrbrr",        name = "Brr Brr Patapim",         rarity = "Common",    zone = 1, coinsPerSec = 1.5, minPower = 1},
-    {id = "chimpanzini",   name = "Chimpanzini Bananini",    rarity = "Common",    zone = 1, coinsPerSec = 2,  minPower = 1},
-    {id = "bombardino",    name = "Bombardino Crocodilo",    rarity = "Rare",      zone = 1, coinsPerSec = 5,  minPower = 3},
-    {id = "lirili",        name = "Lirili Larila",           rarity = "Epic",      zone = 1, coinsPerSec = 12, minPower = 5},
-    -- Boss Zona 1
-    {id = "cappuccino",    name = "Capuccino Assassino",     rarity = "Legendary", zone = 1, coinsPerSec = 30, minPower = 10, isBoss = true},
+local BrainrotPackManifest = require(script.Parent.BrainrotPackManifest)
 
-    -- Zona 2
-    {id = "tungtung",      name = "Tung Tung Sahur",         rarity = "Common",    zone = 2, coinsPerSec = 4,  minPower = 15},
-    {id = "ballerina",     name = "Ballerina Cappuccina",    rarity = "Common",    zone = 2, coinsPerSec = 5,  minPower = 15},
-    {id = "crocodila",     name = "Quesadilla Crocodila",    rarity = "Rare",      zone = 2, coinsPerSec = 12, minPower = 18},
-    {id = "trippi",        name = "Trippi Troppi",           rarity = "Epic",      zone = 2, coinsPerSec = 25, minPower = 22},
-    {id = "bombombini",    name = "Bombombini Gusini",       rarity = "Legendary", zone = 2, coinsPerSec = 60, minPower = 30, isBoss = true},
-
-    -- Zona 3
-    {id = "glorbo",        name = "Glorbo Fruttodrillo",     rarity = "Common",    zone = 3, coinsPerSec = 10, minPower = 40},
-    {id = "spaghetti",     name = "Spaghetti Tualetti",      rarity = "Common",    zone = 3, coinsPerSec = 12, minPower = 40},
-    {id = "elefanto",      name = "Cocofanto Elefanto",     rarity = "Rare",      zone = 3, coinsPerSec = 28, minPower = 50},
-    {id = "nuclearo",     name = "Nuclearo Dinossauro",     rarity = "Epic",      zone = 3, coinsPerSec = 55, minPower = 65},
-    {id = "trenostruzzo",  name = "Trenostruzzo Turbo 3000",rarity = "Legendary", zone = 3, coinsPerSec = 120, minPower = 80, isBoss = true},
+local BOSS_BY_ZONE = {
+	[1] = "Cappuccino Assassino",
+	[2] = "BombombiniGusini",
+	[3] = "Strawberry Elephant",
 }
+
+local RARITY_CYCLE = { "Common", "Common", "Rare", "Epic", "Legendary" }
+
+local function normalizeId(name: string): string
+	return string.lower(name:gsub("%s+", ""):gsub("[^%w]", ""))
+end
+
+local function buildBrainrotsFromPack(packNames: { string })
+	local total = #packNames
+	local perZone = math.max(1, math.ceil(total / 3))
+	local brainrots = {}
+
+	for index, displayName in ipairs(packNames) do
+		local zone = math.min(3, math.ceil(index / perZone))
+		local zoneData = GameConfig.Zones[zone]
+		local requiredPower = zoneData and zoneData.requiredPower or 1
+		local bossName = BOSS_BY_ZONE[zone]
+		local isBoss = bossName
+			and (
+				normalizeId(displayName) == normalizeId(bossName)
+				or index == zone * perZone
+			)
+
+		local rarity = RARITY_CYCLE[((index - 1) % #RARITY_CYCLE) + 1]
+		if isBoss then
+			rarity = "Legendary"
+		end
+
+		local rarityData = GameConfig.Rarities[rarity]
+		local coinsBase = rarityData and rarityData.coinsPerSecBase or 1
+		local zoneScale = 1 + (zone - 1) * 2.5
+
+		table.insert(brainrots, {
+			id = normalizeId(displayName),
+			name = displayName,
+			modelName = displayName,
+			rarity = rarity,
+			zone = zone,
+			coinsPerSec = math.floor(coinsBase * zoneScale * ((isBoss and 3) or 1)),
+			minPower = requiredPower + math.floor((index % 8) * 2),
+			isBoss = isBoss or nil,
+		})
+	end
+
+	return brainrots
+end
 
 -- ═══════════════════════════════════════════
 -- ZONAS
@@ -79,6 +108,13 @@ GameConfig.Zones = {
         baseCoinsPerGoal = 40,
         distanceCoinMultiplier = 1.2,
     },
+}
+
+-- Porterías por defecto (mismo layout que MainGame / marcadores en -Z)
+GameConfig.ZoneGoalCFrames = {
+	[1] = CFrame.new(0, 0, 0),
+	[2] = CFrame.new(200, 0, 0),
+	[3] = CFrame.new(400, 0, 0),
 }
 
 -- ═══════════════════════════════════════════
@@ -137,6 +173,62 @@ GameConfig.Indicator = {
 -- ═══════════════════════════════════════════
 -- HELPER FUNCTIONS
 -- ═══════════════════════════════════════════
+
+local function findZoneGoalModel(zoneModel: Instance, zoneId: number): Instance?
+	local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
+	if goal then
+		return goal
+	end
+	for _, child in zoneModel:GetChildren() do
+		if child:IsA("Model") and string.find(child.Name, "Goal", 1, true) then
+			return child
+		end
+	end
+	return nil
+end
+
+function GameConfig.GetGoalCFrame(zoneId: number): CFrame
+	local fallback = GameConfig.ZoneGoalCFrames[zoneId] or CFrame.new(0, 0, 0)
+
+	local zonesFolder = workspace:FindFirstChild("Zones")
+	if not zonesFolder then
+		zonesFolder = workspace:WaitForChild("Zones", 8)
+	end
+
+	if zonesFolder then
+		local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+		if zoneModel then
+			local goal = findZoneGoalModel(zoneModel, zoneId)
+			if goal then
+				return goal:GetPivot()
+			end
+			return zoneModel:GetPivot()
+		end
+	end
+
+	return fallback
+end
+
+function GameConfig.GetGoalPosition(zoneId: number): Vector3
+	return GameConfig.GetGoalCFrame(zoneId).Position
+end
+
+-- Distancia = separación real jugador-portería en el plano XZ de la zona.
+function GameConfig.ComputeKickDistance(playerPosition: Vector3, goalCFrame: CFrame, zoneId: number): number
+	local zone = GameConfig.Zones[zoneId]
+	if not zone then
+		return 15
+	end
+
+	local goalPos = goalCFrame.Position
+	local planarDelta = Vector3.new(
+		playerPosition.X - goalPos.X,
+		0,
+		playerPosition.Z - goalPos.Z
+	)
+	local distance = math.floor(planarDelta.Magnitude + 0.5)
+	return math.clamp(distance, zone.minDistance, zone.maxDistance)
+end
 
 -- Calcula el tamaño de las zonas del indicador según potencia y distancia
 function GameConfig.CalculateIndicatorZones(playerPower, distance, zoneId)
@@ -251,5 +343,7 @@ end
 function GameConfig.GetNextRebirth(currentRebirth)
     return GameConfig.Rebirths[currentRebirth + 1]
 end
+
+GameConfig.Brainrots = buildBrainrotsFromPack(BrainrotPackManifest)
 
 return GameConfig

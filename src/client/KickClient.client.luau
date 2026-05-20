@@ -11,6 +11,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
+local CLIENT_VERSION = "v2026.05.20-1"
 
 -- ═══════════════════════════════════════════
 -- ESPERAR A QUE LA UI ESTÉ LISTA
@@ -42,6 +43,10 @@ local distanceFrame = screenGui:FindFirstChild("DistanceFrame")
 local distSlider = distanceFrame and distanceFrame:FindFirstChild("DistanceSlider")
 local distLabel = distanceFrame and distanceFrame:FindFirstChild("DistanceLabel")
 local sliderFill = distSlider and distSlider:FindFirstChild("SliderFill")
+if sliderFill then
+    sliderFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    sliderFill.BorderSizePixel = 0
+end
 
 local goalkeeperFrame = screenGui:FindFirstChild("GoalkeeperFrame")
 local gkName = goalkeeperFrame and goalkeeperFrame:FindFirstChild("GoalkeeperName")
@@ -49,6 +54,35 @@ local gkRarity = goalkeeperFrame and goalkeeperFrame:FindFirstChild("GoalkeeperR
 local gkBoss = goalkeeperFrame and goalkeeperFrame:FindFirstChild("GoalkeeperBoss")
 
 local claimButton = screenGui:FindFirstChild("ClaimButton")
+
+-- Version badge (top-right) to verify latest client is loaded
+if screenGui then
+    local versionLabel = screenGui:FindFirstChild("ClientVersionLabel")
+    if not versionLabel then
+        versionLabel = Instance.new("TextLabel")
+        versionLabel.Name = "ClientVersionLabel"
+        versionLabel.Size = UDim2.new(0, 250, 0, 30)
+        versionLabel.AnchorPoint = Vector2.new(1, 0)
+        versionLabel.Position = UDim2.new(1, -12, 0, 36)
+        versionLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        versionLabel.BackgroundTransparency = 0.2
+        versionLabel.BorderSizePixel = 0
+        versionLabel.TextXAlignment = Enum.TextXAlignment.Right
+        versionLabel.Text = "Version: " .. CLIENT_VERSION
+        versionLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+        versionLabel.Font = Enum.Font.GothamBold
+        versionLabel.TextSize = 16
+        versionLabel.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
+        versionLabel.TextStrokeTransparency = 0.2
+        versionLabel.ZIndex = 10000
+        local versionCorner = Instance.new("UICorner")
+        versionCorner.CornerRadius = UDim.new(0, 6)
+        versionCorner.Parent = versionLabel
+        versionLabel.Parent = screenGui
+    else
+        versionLabel.Text = "Version: " .. CLIENT_VERSION
+    end
+end
 
 -- ═══════════════════════════════════════════
 -- ESTADO LOCAL
@@ -77,6 +111,12 @@ local currentGoalkeeper = nil
 local accumulatedIncome = 0
 local canKick = true
 local kickCooldown = 1.5
+local kickCooldownSeq = 0
+local chargeSeq = 0
+local indicatorSession = 0
+local kicksAwaitingResult = 0
+local pendingGoalResults: { any } = {}
+local runConnection = nil
 
 -- ═══════════════════════════════════════════
 -- GOAL STREAK / COMBO SYSTEM
@@ -291,24 +331,67 @@ end
     end)
 end
 
-local function updateKickMarkerPosition()
-    if not kickMarker then return end
-    
+local function getPlayerKickPosition(): Vector3?
+    local character = player.Character
+    if not character then
+        return nil
+    end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return nil
+    end
+    local pos = hrp.Position
+    return Vector3.new(pos.X, 0.5, pos.Z)
+end
+
+local function computeKickDistanceFromPlayer(): number
+    local zoneId = playerStats.currentZone
+    local zone = GameConfig.Zones[zoneId]
+    if not zone then
+        return 15
+    end
+
+    local kickPos = getPlayerKickPosition()
+    if not kickPos then
+        return zone.minDistance
+    end
+
+    local goalCF = GameConfig.GetGoalCFrame(zoneId)
+    return GameConfig.ComputeKickDistance(kickPos, goalCF, zoneId)
+end
+
+local function updateDistanceDisplay()
     local zone = GameConfig.Zones[playerStats.currentZone]
-    if not zone then return end
-    
-    -- Calculate position based on zone offset and distance
-    local zoneOffsets = {
-        [1] = 0,
-        [2] = 200,
-        [3] = 400,
-    }
-    local offsetX = zoneOffsets[playerStats.currentZone] or 0
-    
-    -- Position marker at the selected distance from the goal
-    kickMarker.CFrame = CFrame.new(offsetX, 0.5, -selectedDistance)
-    
-    -- Update label
+    if not zone then
+        return
+    end
+
+    selectedDistance = computeKickDistanceFromPlayer()
+
+    if distLabel then
+        distLabel.Text = "📏 Distancia: " .. tostring(selectedDistance) .. " studs"
+    end
+    if sliderFill then
+        local range = zone.maxDistance - zone.minDistance
+        local relX = (range > 0) and ((selectedDistance - zone.minDistance) / range) or 0
+        sliderFill.Size = UDim2.new(math.clamp(relX, 0, 1), 0, 1, 0)
+    end
+
+    updateKickMarkerPosition()
+end
+
+local function updateKickMarkerPosition()
+    if not kickMarker then
+        return
+    end
+
+    local kickPos = getPlayerKickPosition()
+    if not kickPos then
+        return
+    end
+
+    kickMarker.CFrame = CFrame.new(kickPos)
+
     local billboard = kickMarker:FindFirstChild("BillboardGui")
     if billboard then
         local label = billboard:FindFirstChild("DistanceLabel")
@@ -403,13 +486,127 @@ local function getIndicatorZone()
 end
 
 -- ═══════════════════════════════════════════
--- OSCILACIÓN DEL INDICADOR
+-- RESET / OSCILACIÓN DEL INDICADOR
 -- ═══════════════════════════════════════════
-local runConnection = nil
+local function resetKickUI(hideIndicator: boolean?)
+    indicatorActive = false
+    isCharging = false
+
+    if runConnection then
+        runConnection:Disconnect()
+        runConnection = nil
+    end
+
+    if hideIndicator and indicatorFrame then
+        indicatorFrame.Visible = false
+    end
+
+    if kickMarker then
+        kickMarker.Transparency = 0.4
+    end
+end
+
+local displayGoalResult
+local flushPendingGoalResults
+
+local function tryUnlockAfterResults()
+    if kicksAwaitingResult > 0 then
+        return
+    end
+    if indicatorActive or isCharging then
+        return
+    end
+    kickCooldownSeq += 1
+    canKick = true
+    resetKickUI(true)
+    flushPendingGoalResults()
+end
+
+local function finishKickCooldown()
+    kickCooldownSeq += 1
+    canKick = true
+    resetKickUI(true)
+    flushPendingGoalResults()
+end
+
+displayGoalResult = function(data)
+    if data.goalStreak then
+        goalStreak = data.goalStreak
+        streakBonusMultiplier = 1 + math.max(0, goalStreak - 1) * 0.1
+        updateStreakDisplay()
+    end
+
+    if not resultLabel then
+        return
+    end
+
+    if data.result == "goal" then
+        resultLabel.Text = "⚽ GOL! +" .. tostring(data.coinsEarned) .. " coins!"
+        resultLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+        animateStreakPopup()
+
+        if goalStreak >= 2 then
+            task.delay(0.5, function()
+                if resultLabel and not indicatorActive and not isCharging then
+                    resultLabel.Text = resultLabel.Text .. " 🔥x" .. tostring(goalStreak)
+                end
+            end)
+        end
+
+        if data.capturedBrainrot then
+            task.delay(1.2, function()
+                if resultLabel and not indicatorActive and not isCharging then
+                    resultLabel.Text = "🧠 Capturaste a " .. data.capturedBrainrot.name .. "!"
+                    resultLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
+                end
+            end)
+        end
+
+        if bar then
+            local original = bar.BackgroundColor3
+            bar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+            task.delay(0.5, function()
+                if bar then
+                    bar.BackgroundColor3 = original
+                end
+            end)
+        end
+
+    elseif data.result == "saved" then
+        resultLabel.Text = "🧤 " .. data.goalkeeperName .. " la paró!"
+        resultLabel.TextColor3 = Color3.fromRGB(255, 100, 0)
+
+        if bar then
+            local original = bar.BackgroundColor3
+            bar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+            task.delay(0.5, function()
+                if bar then
+                    bar.BackgroundColor3 = original
+                end
+            end)
+        end
+
+    else
+        resultLabel.Text = "💨 El balón se fue lejos!"
+        resultLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    end
+end
+
+flushPendingGoalResults = function()
+    if indicatorActive or isCharging then
+        return
+    end
+    while #pendingGoalResults > 0 and not indicatorActive and not isCharging do
+        local data = table.remove(pendingGoalResults, 1)
+        displayGoalResult(data)
+    end
+end
 
 local function startIndicator()
     if indicatorActive then return end
     indicatorActive = true
+    indicatorSession += 1
+    local session = indicatorSession
     markerPosition = 0
     markerDirection = 1
 
@@ -441,21 +638,35 @@ local function startIndicator()
             marker.Position = UDim2.new(markerPosition - 0.015, 0, 0, 0)
         end
     end)
+
+    -- Red de seguridad: indicador huérfano sin respuesta del servidor
+    task.delay(8, function()
+        if not indicatorActive or indicatorSession ~= session then
+            return
+        end
+        kicksAwaitingResult = math.max(0, kicksAwaitingResult - 1)
+        kickCooldownSeq += 1
+        finishKickCooldown()
+    end)
 end
 
 local function stopIndicator()
     if not indicatorActive then return end
-    indicatorActive = false
-
-    if runConnection then
-        runConnection:Disconnect()
-        runConnection = nil
-    end
+    indicatorSession += 1
+    resetKickUI(false)
 
     local zone = getIndicatorZone()
 
-    -- Enviar patada al servidor
+    kicksAwaitingResult += 1
     RemoteEvents.KickBall:FireServer(zone)
+
+    task.delay(6, function()
+        if kicksAwaitingResult <= 0 then
+            return
+        end
+        kicksAwaitingResult = math.max(0, kicksAwaitingResult - 1)
+        tryUnlockAfterResults()
+    end)
 
     -- Feedback visual inmediato
     if resultLabel then
@@ -474,15 +685,17 @@ local function stopIndicator()
     -- Cooldown: se activa antes del FireServer para evitar race conditions
     -- donde el servidor responde antes de que se setée el cooldown.
     canKick = false
+    kickCooldownSeq += 1
+    local cooldownSeq = kickCooldownSeq
     showCooldownBar(kickCooldown)
     task.delay(kickCooldown, function()
-        canKick = true
-        if indicatorFrame then
-            indicatorFrame.Visible = false
+        if cooldownSeq ~= kickCooldownSeq then
+            return
         end
-        if kickMarker then
-            kickMarker.Transparency = 0.4
+        if kicksAwaitingResult > 0 then
+            return
         end
+        finishKickCooldown()
     end)
 end
 
@@ -574,19 +787,34 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
 
-        -- Notificar al servidor la posición de patada
+        -- Si quedó un indicador huérfano (tap muy rápido), limpiar sin disparar
+        if indicatorActive then
+            resetKickUI(true)
+        end
+
+        isCharging = true
+        chargeSeq += 1
+        local chargeId = chargeSeq
+
+        -- Distancia = donde está el jugador al hacer click (no el slider)
+        selectedDistance = computeKickDistanceFromPlayer()
+        updateDistanceDisplay()
+
         RemoteEvents.SetKickPosition:FireServer(selectedDistance)
 
-        -- Esperar a que el servidor seleccione el portero
-        task.wait(0.3)
+        -- Esperar a que el servidor seleccione el portero; solo cargar si sigue pulsado
+        task.spawn(function()
+            task.wait(0.3)
+            if chargeSeq ~= chargeId or not isCharging then
+                return
+            end
 
-        -- Iniciar indicador de fuerza
-        startIndicator()
-        
-        -- Hide kick marker during kick
-        if kickMarker then
-            kickMarker.Transparency = 1
-        end
+            startIndicator()
+
+            if kickMarker then
+                kickMarker.Transparency = 1
+            end
+        end)
     end
 end)
 
@@ -595,6 +823,8 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
+        isCharging = false
+
         if indicatorActive then
             stopIndicator()
         end
@@ -602,52 +832,27 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 end)
 
 -- ═══════════════════════════════════════════
--- SLIDER DE DISTANCIA
+-- SLIDER DE DISTANCIA (solo lectura: refleja posición del jugador)
 -- ═══════════════════════════════════════════
-local dragging = false
-
-local function updateDistanceFromInput(inputPos)
-    if not distSlider then return end
-    local relX = math.clamp(
-        (inputPos.X - distSlider.AbsolutePosition.X) / distSlider.AbsoluteSize.X,
-        0, 1
-    )
-    local zone = GameConfig.Zones[playerStats.currentZone]
-    if zone then
-        selectedDistance = math.floor(zone.minDistance + relX * (zone.maxDistance - zone.minDistance))
-        if distLabel then
-            distLabel.Text = "📏 Distancia: " .. tostring(selectedDistance) .. " studs"
-        end
-        if sliderFill then
-            sliderFill.Size = UDim2.new(relX, 0, 1, 0)
-        end
-        updateIndicatorZones()
-        -- Update 3D marker position
-        updateKickMarkerPosition()
-    end
-end
-
 if distSlider then
-    distSlider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            updateDistanceFromInput(input.Position)
-        end
-    end)
-
-    distSlider.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
+    distSlider.Active = false
+    if distSlider:IsA("GuiObject") then
+        distSlider.Interactable = false
+    end
+end
+if distanceFrame and distanceFrame:IsA("GuiObject") then
+    distanceFrame.Active = false
 end
 
-UserInputService.InputChanged:Connect(function(input)
-    if dragging then
-        updateDistanceFromInput(input.Position)
+RunService.Heartbeat:Connect(function()
+    if indicatorActive or isCharging then
+        return
     end
+    updateDistanceDisplay()
+end)
+
+player.CharacterAdded:Connect(function()
+    task.defer(updateDistanceDisplay)
 end)
 
 -- ═══════════════════════════════════════════
@@ -673,8 +878,7 @@ end
 RemoteEvents.UpdateStats.OnClientEvent:Connect(function(stats)
     playerStats = stats
     updateHUD()
-    -- Update kick marker when zone changes
-    updateKickMarkerPosition()
+    updateDistanceDisplay()
 end)
 
 -- Mostrar portero seleccionado
@@ -711,83 +915,30 @@ end)
 
 -- Resultado del gol
 RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
-    if not resultLabel then return end
+    kicksAwaitingResult = math.max(0, kicksAwaitingResult - 1)
+    kickCooldownSeq += 1
 
-    if data.result == "goal" then
-        resultLabel.Text = "⚽ GOL! +" .. tostring(data.coinsEarned) .. " coins!"
-        resultLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
-
-        -- Update streak
-        goalStreak = goalStreak + 1
-        streakBonusMultiplier = 1 + (goalStreak - 1) * 0.1 -- 10% bonus per consecutive goal
-        updateStreakDisplay()
-        animateStreakPopup()
-
-        -- Show streak bonus in result if applicable
-        if goalStreak >= 2 then
-            task.delay(0.5, function()
-                if resultLabel then
-                    resultLabel.Text = resultLabel.Text .. " 🔥x" .. tostring(goalStreak)
-                end
-            end)
+    -- Si ya está cargando el siguiente tiro, encolar para no pisar el indicador
+    if indicatorActive or isCharging then
+        table.insert(pendingGoalResults, data)
+        if data.goalStreak then
+            goalStreak = data.goalStreak
+            streakBonusMultiplier = 1 + math.max(0, goalStreak - 1) * 0.1
+            updateStreakDisplay()
         end
-
-        if data.capturedBrainrot then
-            task.delay(1.2, function()
-                resultLabel.Text = "🧠 Capturaste a " .. data.capturedBrainrot.name .. "!"
-                resultLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
-            end)
-        end
-
-        -- Flash verde en el indicador
-        if bar then
-            local original = bar.BackgroundColor3
-            bar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
-            task.delay(0.5, function()
-                bar.BackgroundColor3 = original
-            end)
-        end
-
-    elseif data.result == "saved" then
-        resultLabel.Text = "🧤 " .. data.goalkeeperName .. " la paró!"
-        resultLabel.TextColor3 = Color3.fromRGB(255, 100, 0)
-        
-        -- Reset streak on save
-        goalStreak = 0
-        streakBonusMultiplier = 1
-        updateStreakDisplay()
-
-        -- Flash rojo
-        if bar then
-            local original = bar.BackgroundColor3
-            bar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-            task.delay(0.5, function()
-                bar.BackgroundColor3 = original
-            end)
-        end
-
-    else -- miss
-        resultLabel.Text = "💨 El balón se fue lejos!"
-        resultLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        
-        -- Reset streak on miss
-        goalStreak = 0
-        streakBonusMultiplier = 1
-        updateStreakDisplay()
+        return
     end
 
-    -- Resetear estado del indicador para que el jugador pueda patear de nuevo
-    -- Esto es necesario porque el servidor responde con GoalResult SIN nueva petición
-    -- de kick — el ciclo acaba en el servidor, no en el cliente.
+    displayGoalResult(data)
+
     task.delay(0.5, function()
-        indicatorActive = false
-        if indicatorFrame then
-            indicatorFrame.Visible = false
+        if indicatorActive or isCharging or kicksAwaitingResult > 0 then
+            return
         end
-        if kickMarker then
-            kickMarker.Transparency = 0.4
-        end
+        tryUnlockAfterResults()
     end)
+
+    tryUnlockAfterResults()
 end)
 
 -- ═══════════════════════════════════════════
@@ -814,18 +965,6 @@ if goalkeeperFrame then
     goalkeeperFrame.Visible = false
 end
 
--- Inicializar slider con distancia por defecto
-local initZone = GameConfig.Zones[playerStats.currentZone]
-if initZone then
-    selectedDistance = math.floor((initZone.minDistance + initZone.maxDistance) / 2)
-    if distLabel then
-        distLabel.Text = "📏 Distancia: " .. tostring(selectedDistance) .. " studs"
-    end
-    if sliderFill then
-        local relX = (selectedDistance - initZone.minDistance) / (initZone.maxDistance - initZone.minDistance)
-        sliderFill.Size = UDim2.new(relX, 0, 1, 0)
-    end
-end
-
 updateHUD()
+updateDistanceDisplay()
 print("[KickClient] Cliente inicializado correctamente")

@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 local RemoteEvents = ReplicatedStorage.RemoteEvents
+local GameConfig = require(ReplicatedStorage.GameConfig)
 local SoundConfig = require(ReplicatedStorage.SoundConfig)
 
 -- ═══════════════════════════════════════════
@@ -291,25 +292,7 @@ end
 -- HELPER: Get goal position for current zone
 -- ═══════════════════════════════════════════
 local function getGoalPosition(zoneId)
-    local zonesFolder = workspace:FindFirstChild("Zones")
-    if zonesFolder then
-        local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId or 1))
-        if zoneModel then
-            local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId or 1))
-            if goal then
-                return goal:GetPivot().Position
-            end
-        end
-    end
-    -- Fallback: estimate from player position
-    local character = player.Character
-    if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            return hrp.Position + hrp.CFrame.LookVector * 50
-        end
-    end
-    return Vector3.new(0, 3, 0)
+    return GameConfig.GetGoalPosition(zoneId or 1)
 end
 
 -- ═══════════════════════════════════════════

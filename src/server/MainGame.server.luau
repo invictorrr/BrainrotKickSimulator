@@ -13,7 +13,6 @@ local RemoteEvents = ReplicatedStorage.RemoteEvents
 -- ═══════════════════════════════════════════
 -- REFERENCIAS AL MAPA
 -- ═══════════════════════════════════════════
-local brainrotsModels = workspace:FindFirstChild("brainrotsmodels")
 local zonesFolder = workspace:FindFirstChild("Zones") or Instance.new("Folder")
 if not zonesFolder.Parent then
     zonesFolder.Name = "Zones"
@@ -128,8 +127,8 @@ end
 -- SISTEMA DE PATADA
 -- ═══════════════════════════════════════════
 
--- Cuando el jugador selecciona su posición de patada
-RemoteEvents.SetKickPosition.OnServerEvent:Connect(function(player, distance)
+-- Cuando el jugador selecciona su posición de patada (distancia = donde está parado)
+RemoteEvents.SetKickPosition.OnServerEvent:Connect(function(player, _clientDistance)
     local data = PlayerData.GetData(player)
     if not data then return end
 
@@ -137,8 +136,14 @@ RemoteEvents.SetKickPosition.OnServerEvent:Connect(function(player, distance)
     local zone = GameConfig.Zones[zoneId]
     if not zone then return end
 
-    -- Validar distancia
-    distance = math.clamp(distance, zone.minDistance, zone.maxDistance)
+    local distance = _clientDistance
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        distance = GameConfig.ComputeKickDistance(hrp.Position, GameConfig.GetGoalCFrame(zoneId), zoneId)
+    else
+        distance = math.clamp(_clientDistance or zone.minDistance, zone.minDistance, zone.maxDistance)
+    end
 
     local runtime = getRuntime(player)
     runtime.kickDistance = distance
