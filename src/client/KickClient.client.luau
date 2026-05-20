@@ -11,7 +11,10 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
-local CLIENT_VERSION = "v2026.05.20-6"
+local CLIENT_VERSION = "v2026.05.20-7"
+
+local Workspace = workspace
+local LocalCamera = Workspace.CurrentCamera
 
 -- ═══════════════════════════════════════════
 -- ESPERAR A QUE LA UI ESTÉ LISTA
@@ -120,6 +123,78 @@ local runConnection = nil
 local updateKickMarkerPosition
 local updateIndicatorZones
 local sliderUpdateBroken = false
+
+-- ═══════════════════════════════════════════
+-- FASE DEL DISPARO (flujo a 2 clicks)
+--   idle      → puede iniciar tiro
+--   focusing  → cámara enfocada al arco, esperando que aparezca portero
+--   indicator → indicador oscilando, esperando 2º click
+--   firing    → tiro disparado, esperando GoalResult
+-- ═══════════════════════════════════════════
+local kickPhase = "idle"
+local kickPhaseSeq = 0
+local GOALKEEPER_REVEAL_DELAY = 1.8  -- segundos hasta que arranque el indicador
+local INDICATOR_TIMEOUT = 8           -- segundos antes de cancelar automáticamente
+
+-- ═══════════════════════════════════════════
+-- CÁMARA: enfoque temporal al arco durante el tiro
+-- ═══════════════════════════════════════════
+local cameraOriginalType = nil
+local cameraOriginalSubject = nil
+local cameraFocusActive = false
+local cameraFocusTween = nil
+
+local function focusCameraOnGoal()
+    if cameraFocusActive then return end
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local zoneId = playerStats.currentZone
+    local goalPos = GameConfig.GetGoalPosition(zoneId)
+
+    local playerPos = hrp.Position
+    local horizontalToGoal = Vector3.new(goalPos.X - playerPos.X, 0, goalPos.Z - playerPos.Z)
+    if horizontalToGoal.Magnitude < 0.001 then
+        return
+    end
+    local backDir = -horizontalToGoal.Unit
+    local camPos = playerPos + backDir * 14 + Vector3.new(0, 9, 0)
+    local lookAt = goalPos + Vector3.new(0, 4, 0)
+    local targetCFrame = CFrame.new(camPos, lookAt)
+
+    cameraOriginalType = LocalCamera.CameraType
+    cameraOriginalSubject = LocalCamera.CameraSubject
+    cameraFocusActive = true
+
+    LocalCamera.CameraType = Enum.CameraType.Scriptable
+    if cameraFocusTween then
+        cameraFocusTween:Cancel()
+        cameraFocusTween = nil
+    end
+    local ti = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    cameraFocusTween = TweenService:Create(LocalCamera, ti, { CFrame = targetCFrame })
+    cameraFocusTween:Play()
+end
+
+local function restoreCamera()
+    if not cameraFocusActive then return end
+    cameraFocusActive = false
+    if cameraFocusTween then
+        cameraFocusTween:Cancel()
+        cameraFocusTween = nil
+    end
+    LocalCamera.CameraType = cameraOriginalType or Enum.CameraType.Custom
+    if cameraOriginalSubject then
+        LocalCamera.CameraSubject = cameraOriginalSubject
+    else
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            LocalCamera.CameraSubject = humanoid
+        end
+    end
+end
 
 -- ═══════════════════════════════════════════
 -- GOAL STREAK / COMBO SYSTEM
@@ -535,6 +610,10 @@ local function tryUnlockAfterResults()
     end
     kickCooldownSeq += 1
     canKick = true
+    kickPhase = "idle"
+    if cameraFocusActive then
+        restoreCamera()
+    end
     resetKickUI(true)
     flushPendingGoalResults()
 end
@@ -542,6 +621,10 @@ end
 local function finishKickCooldown()
     kickCooldownSeq += 1
     canKick = true
+    kickPhase = "idle"
+    if cameraFocusActive then
+        restoreCamera()
+    end
     resetKickUI(true)
     flushPendingGoalResults()
 end
@@ -810,58 +893,79 @@ local function showCooldownBar(duration)
 end
 
 -- ═══════════════════════════════════════════
--- INPUT: CLICK/TAP PARA PATEAR
+-- INPUT: 2-CLICK FLOW
+-- 1º click → enfoca arco + portero → arranca indicador
+-- 2º click → para indicador → dispara
 -- ═══════════════════════════════════════════
+local function cancelKickToIdle()
+    kickPhaseSeq += 1
+    kickPhase = "idle"
+    resetKickUI(true)
+    restoreCamera()
+    if kickMarker then
+        kickMarker.Transparency = 0.4
+    end
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if not canKick then return end
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then
+        return
+    end
 
-        -- Si quedó un indicador huérfano (tap muy rápido), limpiar sin disparar
-        if indicatorActive then
-            resetKickUI(true)
-        end
+    if kickPhase == "idle" then
+        if not canKick then return end
 
-        isCharging = true
-        chargeSeq += 1
-        local chargeId = chargeSeq
-
-        -- Distancia = donde está el jugador al hacer click (no el slider)
+        -- Distancia = donde está el jugador AHORA (snapshot al primer click)
         selectedDistance = computeKickDistanceFromPlayer()
         updateDistanceDisplay()
 
         RemoteEvents.SetKickPosition:FireServer(selectedDistance)
 
-        -- Esperar a que el servidor seleccione el portero; solo cargar si sigue pulsado
-        task.spawn(function()
-            task.wait(0.3)
-            if chargeSeq ~= chargeId or not isCharging then
-                return
-            end
+        kickPhase = "focusing"
+        kickPhaseSeq += 1
+        local seq = kickPhaseSeq
 
+        focusCameraOnGoal()
+
+        if kickMarker then
+            kickMarker.Transparency = 1
+        end
+
+        -- Aviso visual durante focus
+        if resultLabel then
+            resultLabel.Text = "🎯 Apunta al portero..."
+            resultLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+
+        -- Tras la revelación del portero, abrir el indicador
+        task.delay(GOALKEEPER_REVEAL_DELAY, function()
+            if kickPhaseSeq ~= seq then return end
+            if kickPhase ~= "focusing" then return end
+            kickPhase = "indicator"
             startIndicator()
+        end)
 
-            if kickMarker then
-                kickMarker.Transparency = 1
+        -- Failsafe: si nunca llega un 2º click, volver a idle
+        task.delay(GOALKEEPER_REVEAL_DELAY + INDICATOR_TIMEOUT, function()
+            if kickPhaseSeq ~= seq then return end
+            if kickPhase == "indicator" or kickPhase == "focusing" then
+                cancelKickToIdle()
             end
         end)
+
+    elseif kickPhase == "indicator" then
+        kickPhase = "firing"
+        kickPhaseSeq += 1
+        stopIndicator()
+        -- Devolver la cámara: durante el tiro el jugador ve normal
+        task.delay(0.15, restoreCamera)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        isCharging = false
-
-        if indicatorActive then
-            stopIndicator()
-        end
-    end
-end)
+-- InputEnded ya no dispara nada (flujo es 2-click, no mantener)
 
 -- ═══════════════════════════════════════════
 -- SLIDER DE DISTANCIA (solo lectura: refleja posición del jugador)
@@ -877,6 +981,9 @@ if distanceFrame and distanceFrame:IsA("GuiObject") then
 end
 
 RunService.Heartbeat:Connect(function()
+    if kickPhase ~= "idle" then
+        return
+    end
     if indicatorActive or isCharging then
         return
     end
@@ -950,9 +1057,12 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
     canKick = true
     kicksAwaitingResult = math.max(0, kicksAwaitingResult - 1)
     kickCooldownSeq += 1
+    if cameraFocusActive then
+        restoreCamera()
+    end
 
     -- Si ya está cargando el siguiente tiro, encolar para no pisar el indicador
-    if indicatorActive or isCharging then
+    if indicatorActive or isCharging or kickPhase == "indicator" or kickPhase == "focusing" then
         table.insert(pendingGoalResults, data)
         if data.goalStreak then
             goalStreak = data.goalStreak
@@ -962,6 +1072,7 @@ RemoteEvents.GoalResult.OnClientEvent:Connect(function(data)
         return
     end
 
+    kickPhase = "idle"
     displayGoalResult(data)
 
     task.delay(0.5, function()

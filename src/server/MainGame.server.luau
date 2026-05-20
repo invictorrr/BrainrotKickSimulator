@@ -4,7 +4,6 @@
 ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Debris = game:GetService("Debris")
 
 local GameConfig = require(ReplicatedStorage.GameConfig)
 local PlayerData = require(game.ServerScriptService.PlayerData)
@@ -126,15 +125,19 @@ local function sendStats(player)
 end
 
 local SHOT_SPREAD_BY_ZONE = {
-    green = 2,
-    yellow = 8,
-    red = 16,
+    green = 0,
+    yellow = 7,
+    red = 18,
 }
 
+-- Reach effectivo del tiro según indicador.
+--   green: llega justo (potencia justa para alcanzar el arco)
+--   yellow: alcance levemente reducido
+--   red: alcance muy reducido (la pelota se queda corta o desvía)
 local SHOT_POWER_MULTIPLIER = {
     green = 1.0,
-    yellow = 1.0,
-    red = 1.0,
+    yellow = 0.85,
+    red = 0.55,
 }
 
 local function isPointInsidePart(point: Vector3, part: BasePart): boolean
@@ -143,6 +146,49 @@ local function isPointInsidePart(point: Vector3, part: BasePart): boolean
     return math.abs(localPos.X) <= half.X
         and math.abs(localPos.Y) <= half.Y
         and math.abs(localPos.Z) <= half.Z
+end
+
+-- Pelotas activas por jugador. Solo se mantiene 1 a la vez: al patear de
+-- nuevo, se elimina la previa para evitar pelotas huérfanas acumulándose.
+local activeBallsByPlayer: { [number]: BasePart } = {}
+
+local function clearActiveBall(player: Player)
+    local ball = activeBallsByPlayer[player.UserId]
+    if ball and ball.Parent then
+        ball:Destroy()
+    end
+    activeBallsByPlayer[player.UserId] = nil
+end
+
+local function createSoccerBall(startPos: Vector3, ballData): BasePart
+    local ball = Instance.new("Part")
+    ball.Name = "ServerKickBall"
+    ball.Shape = Enum.PartType.Ball
+    ball.Size = Vector3.new(1.6, 1.6, 1.6)
+    ball.Material = Enum.Material.SmoothPlastic
+    ball.TopSurface = Enum.SurfaceType.Smooth
+    ball.BottomSurface = Enum.SurfaceType.Smooth
+    ball.Color = (ballData and ballData.color) or Color3.fromRGB(245, 245, 245)
+    ball.CFrame = CFrame.new(startPos)
+    ball.Anchored = false
+    ball.CanCollide = true
+    ball.CanTouch = false
+    ball.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.5, 0.6, 1, 1)
+
+    -- Decoración estilo balón de fútbol (parches negros en las 6 caras)
+    for _, face in ipairs({
+        Enum.NormalId.Top, Enum.NormalId.Bottom,
+        Enum.NormalId.Front, Enum.NormalId.Back,
+        Enum.NormalId.Left, Enum.NormalId.Right,
+    }) do
+        local decal = Instance.new("Decal")
+        decal.Face = face
+        decal.Color3 = Color3.fromRGB(20, 20, 20)
+        decal.Transparency = 0.05
+        decal.Parent = ball
+    end
+
+    return ball
 end
 
 local function isBallSaved(goalkeeperModel: Instance?, ballPos: Vector3): boolean
@@ -285,50 +331,85 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
     local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
     local revealedGoalkeeper = zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper")
 
-    if not outOfRange and hrp and goalModel then
-        local startPos = hrp.Position + Vector3.new(0, 2, 0)
-        local goalCFrame = goalModel:GetPivot()
-        local goalCenter = goalZone and goalZone.Position or (goalCFrame.Position + Vector3.new(0, 3, 0))
+    -- SIEMPRE intentamos spawnear la pelota con físicas reales.
+    -- Si no hay arco o personaje válido, lo único que falta es el target.
+    if hrp then
+        local goalCFrame = goalModel and goalModel:GetPivot()
+        local goalCenter
+        if goalZone then
+            goalCenter = goalZone.Position
+        elseif goalCFrame then
+            goalCenter = goalCFrame.Position + Vector3.new(0, 4, 0)
+        else
+            goalCenter = hrp.Position + (hrp.CFrame.LookVector * 30) + Vector3.new(0, 4, 0)
+        end
 
-        local aimVector = Vector3.new(goalCenter.X - startPos.X, 0, goalCenter.Z - startPos.Z)
-        if aimVector.Magnitude < 0.001 then
+        -- Dirección hacia el arco (no la del personaje, así no importa
+        -- hacia dónde mire al pulsar)
+        local toGoalDir = Vector3.new(goalCenter.X - hrp.Position.X, 0, goalCenter.Z - hrp.Position.Z)
+        if toGoalDir.Magnitude < 0.001 then
             local look = hrp.CFrame.LookVector
-            aimVector = Vector3.new(look.X, 0, look.Z)
+            toGoalDir = Vector3.new(look.X, 0, look.Z)
+            if toGoalDir.Magnitude < 0.001 then
+                toGoalDir = Vector3.new(0, 0, -1)
+            end
         end
-        aimVector = aimVector.Unit
+        toGoalDir = toGoalDir.Unit
 
+        -- Spawn de la pelota 2 studs delante del jugador, en dirección al arco
+        local startPos = hrp.Position + (toGoalDir * 2) + Vector3.new(0, 1, 0)
+
+        local aimVector = toGoalDir
+
+        -- Spread según indicador (verde = 0, rojo = mucho)
         local spreadDeg = SHOT_SPREAD_BY_ZONE[indicatorZone] or SHOT_SPREAD_BY_ZONE.red
-        if indicatorZone == "green" then
-            spreadDeg = 0
-        end
         local spreadRad = math.rad((math.random() * 2 - 1) * spreadDeg)
         local shotDir = (CFrame.fromAxisAngle(Vector3.new(0, 1, 0), spreadRad):VectorToWorldSpace(aimVector)).Unit
 
-        local reach = maxKickDistance * (SHOT_POWER_MULTIPLIER[indicatorZone] or 0.8)
+        -- Alcance: maxKickDistance es justo lo que la potencia da.
+        --   En green con potencia justa, llega al arco.
+        --   En outOfRange (jugador muy lejos), la pelota cae corta.
+        local reachMultiplier = SHOT_POWER_MULTIPLIER[indicatorZone] or 0.55
+        local powerReach = maxKickDistance * reachMultiplier
+        local reach = math.min(distance, powerReach)
+        if outOfRange then
+            -- La pelota se queda corta. Llega justo a maxKickDistance.
+            reach = powerReach
+        end
+        reach = math.max(reach, 5) -- mínimo para que el balón haga algo
+
         local targetXZ = Vector3.new(startPos.X, 0, startPos.Z) + shotDir * reach
-        local targetPos = Vector3.new(targetXZ.X, math.max(2, goalCenter.Y), targetXZ.Z)
-        local flightTime = math.clamp(reach / 42, 0.35, 1.2)
+        -- Altura objetivo: si llega al arco, apunta a un punto válido; si no,
+        -- al suelo donde caería naturalmente.
+        local targetY = (reach >= distance - 1 and goalCenter)
+            and math.clamp(goalCenter.Y, 2, goalCenter.Y)
+            or 1
+        local targetPos = Vector3.new(targetXZ.X, targetY, targetXZ.Z)
+        local flightTime = math.clamp(reach / 42, 0.45, 1.4)
         local g = workspace.Gravity
         local velocity = (targetPos - startPos + Vector3.new(0, 0.5 * g * flightTime * flightTime, 0)) / flightTime
 
-        local ball = Instance.new("Part")
-        ball.Name = "ServerKickBall"
-        ball.Shape = Enum.PartType.Ball
-        ball.Size = Vector3.new(1.2, 1.2, 1.2)
-        ball.Material = Enum.Material.SmoothPlastic
-        ball.Color = ballData and ballData.color or Color3.fromRGB(255, 255, 255)
-        ball.CFrame = CFrame.new(startPos)
-        ball.Anchored = false
-        ball.CanCollide = false
-        ball.CanTouch = false
+        -- Eliminar pelota previa de este jugador y crear la nueva
+        clearActiveBall(player)
+        local ball = createSoccerBall(startPos, ballData)
         ball.Parent = workspace
         ball:SetNetworkOwner(nil)
         ball.AssemblyLinearVelocity = velocity
-        Debris:AddItem(ball, 4)
+        -- Pequeño giro para realismo
+        ball.AssemblyAngularVelocity = Vector3.new(
+            (math.random() * 2 - 1) * 4,
+            (math.random() * 2 - 1) * 4,
+            (math.random() * 2 - 1) * 4
+        )
+        activeBallsByPlayer[player.UserId] = ball
+        -- Sin Debris: la pelota persiste en el campo. Se elimina cuando el
+        -- jugador patea de nuevo (clearActiveBall) o cuando se desconecta.
 
+        -- Simulación de detección de gol/parada (no controla la pelota,
+        -- solo observa su posición real para decidir el resultado).
         local elapsed = 0
         while ball.Parent and elapsed < 2.8 do
-            elapsed += task.wait(0.03)
+            elapsed += task.wait(0.04)
             local pos = ball.Position
 
             if goalZone and isPointInsidePart(pos, goalZone) then
@@ -347,6 +428,7 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         runtime.goalStreak = 0
     end
 
+    -- Garantía verde: si el indicador fue verde y hay alcance, es gol seguro
     if indicatorZone == "green" and not outOfRange then
         result = "goal"
     end
@@ -693,6 +775,7 @@ local function onPlayerRemoving(player)
     PlayerData.SaveData(player)
     PlayerData.RemovePlayer(player)
     playerRuntimeState[player.UserId] = nil
+    clearActiveBall(player)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
