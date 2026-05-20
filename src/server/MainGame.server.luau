@@ -274,25 +274,23 @@ RemoteEvents.SetKickPosition.OnServerEvent:Connect(function(player, _clientDista
         rarity = goalkeeper.rarity,
     })
 
-    -- Spawn visual de siluetas → revelación en el mundo 3D.
-    -- Soportamos tanto el sistema HD (LevelManager) como el legacy (Zones).
-    local goalModel, _, _ = resolveGoalContext(zoneId)
-    if goalModel then
-        local container
-        local hdGoal = LevelManager.GetGoalForZone(zoneId)
-        if hdGoal then
-            container = hdGoal -- parenteamos bajo el modelo de la portería HD
-        else
-            container = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+    -- Spawn visual de siluetas -> revelacion en el mundo 3D.
+    local goalModel, goalCFrame, _ = resolveGoalContext(zoneId)
+    if goalCFrame then
+        local gkFolder = LevelManager.GetGoalkeepersFolder() or workspace
+        for _, child in ipairs(gkFolder:GetChildren()) do
+            if child:GetAttribute("OwnerUserId") == player.UserId then
+                child:Destroy()
+            end
         end
-        if container then
-            for _, child in container:GetChildren() do
+        if goalModel then
+            for _, child in ipairs(goalModel:GetChildren()) do
                 if child.Name == "GoalkeeperSilhouette" or child.Name == "RevealedGoalkeeper" then
                     child:Destroy()
                 end
             end
-            BrainrotSystem.SpawnGoalkeeperSequence(goalModel:GetPivot(), goalkeeper, container)
         end
+        BrainrotSystem.SpawnGoalkeeperSequence(goalCFrame, goalkeeper, gkFolder, player.UserId)
     end
 end)
 
@@ -341,11 +339,22 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
     local character = player.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     local goalModel, goalZone, goalCFrame = resolveGoalContext(zoneId)
-    -- Portero revelado puede vivir bajo la zona legacy o bajo el modelo de
-    -- la portería del HD map (lo parentea BrainrotSystem.SpawnGoalkeeperSequence).
-    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
-    local revealedGoalkeeper = (zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper"))
-        or (goalModel and goalModel:FindFirstChild("RevealedGoalkeeper"))
+    local gkFolder = LevelManager.GetGoalkeepersFolder()
+    local revealedGoalkeeper = nil
+    if gkFolder then
+        for _, child in ipairs(gkFolder:GetChildren()) do
+            if child.Name == "RevealedGoalkeeper"
+                and child:GetAttribute("OwnerUserId") == player.UserId then
+                revealedGoalkeeper = child
+                break
+            end
+        end
+    end
+    if not revealedGoalkeeper then
+        local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+        revealedGoalkeeper = (zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper"))
+            or (goalModel and goalModel:FindFirstChild("RevealedGoalkeeper"))
+    end
 
     -- Toda la mecánica vive en KickMechanic. Le pasamos el contexto y
     -- recibimos el resultado + la pelota spawneada (si la hubo).
@@ -407,8 +416,16 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         if result == "goal" then
             BrainrotSystem.PlayGoalEffect(goalPos)
         elseif result == "saved" then
-            local gk = (zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper"))
-                or goalModel:FindFirstChild("RevealedGoalkeeper")
+            local gk = revealedGoalkeeper
+            if not gk and gkFolder then
+                for _, child in ipairs(gkFolder:GetChildren()) do
+                    if child.Name == "RevealedGoalkeeper"
+                        and child:GetAttribute("OwnerUserId") == player.UserId then
+                        gk = child
+                        break
+                    end
+                end
+            end
             if gk then
                 BrainrotSystem.PlaySaveAnimation(gk)
             end
@@ -728,6 +745,11 @@ local function onPlayerAdded(player)
     updateLeaderstats(player)
     sendStats(player)
     sendBrainrotList(player)
+
+    local data = PlayerData.GetData(player)
+    if data and LevelManager.IsHDMapPresent() then
+        LevelManager.SyncPlayerGates(data.currentZone)
+    end
 end
 
 local function onPlayerRemoving(player)

@@ -263,12 +263,18 @@ local function createSilhouette(position)
     return silhouette
 end
 
+local function liftModelToGround(model: Model, position: CFrame)
+	local _, size = model:GetBoundingBox()
+	local yLift = math.max(1, size.Y * 0.5)
+	model:PivotTo(position * CFrame.new(0, yLift, 0))
+end
+
 -- Crear portero revelado (modelo real del brainrot)
 local function createRevealedGoalkeeper(brainrotId, position, isBoss)
     local model = BrainrotSystem.GetBrainrotModel(brainrotId)
     if model then
         model.Name = "RevealedGoalkeeper"
-        model:PivotTo(position * CFrame.new(0, 0, 0))
+        liftModelToGround(model, position)
         for _, part in model:GetDescendants() do
             if part:IsA("BasePart") then
                 part.Anchored = true
@@ -493,36 +499,50 @@ function BrainrotSystem.CreateDistanceMarkers(zoneId, goalPosition)
 end
 
 -- Animacion: siluetas -> revelacion de portero
-function BrainrotSystem.SpawnGoalkeeperSequence(goalPosition, brainrotData, parent)
-    local silhouettes = {}
-    local zone = GameConfig.Zones[brainrotData.zone]
-    local width = zone and zone.goalWidth or 10
-    local positions = {
-        goalPosition * CFrame.new(-width / 3, 0, 0),
-        goalPosition * CFrame.new(0, 0, 0),
-        goalPosition * CFrame.new(width / 3, 0, 0),
-    }
-    for i, pos in ipairs(positions) do
-        local sil = createSilhouette(pos)
-        sil.Parent = parent or workspace
-        table.insert(silhouettes, sil)
-    end
-    task.delay(1.5, function()
-        for _, sil in ipairs(silhouettes) do
-            if sil and sil.Parent then sil:Destroy() end
-        end
-        local revealed = createRevealedGoalkeeper(
-            brainrotData.id,
-            goalPosition * CFrame.new(0, 0, 0),
-            brainrotData.isBoss
-        )
-        revealed.Parent = parent or workspace
-        task.delay(8, function()
-            if revealed and revealed.Parent then
-                revealed:Destroy()
-            end
-        end)
-    end)
+-- goalPosition = pivote de la porteria (linea de gol). El portero se coloca
+-- delante de la linea (-Z local) mirando al jugador.
+local GK_STAND_OFFSET = CFrame.new(0, 0, -4)
+
+function BrainrotSystem.SpawnGoalkeeperSequence(goalPosition, brainrotData, parent, ownerUserId: number?)
+	local silhouettes = {}
+	local zone = GameConfig.Zones[brainrotData.zone]
+	local width = zone and zone.goalWidth or 10
+	local standBase = goalPosition * GK_STAND_OFFSET
+	local positions = {
+		standBase * CFrame.new(-width / 3, 0, 0),
+		standBase * CFrame.new(0, 0, 0),
+		standBase * CFrame.new(width / 3, 0, 0),
+	}
+	for _, pos in ipairs(positions) do
+		local sil = createSilhouette(pos)
+		if ownerUserId then
+			sil:SetAttribute("OwnerUserId", ownerUserId)
+		end
+		sil.Parent = parent or workspace
+		table.insert(silhouettes, sil)
+	end
+	task.delay(1.5, function()
+		for _, sil in ipairs(silhouettes) do
+			if sil and sil.Parent then
+				sil:Destroy()
+			end
+		end
+		local revealed = createRevealedGoalkeeper(
+			brainrotData.id,
+			standBase * CFrame.new(0, 0, 0),
+			brainrotData.isBoss
+		)
+		if ownerUserId then
+			revealed:SetAttribute("OwnerUserId", ownerUserId)
+		end
+		revealed:SetAttribute("ZoneId", brainrotData.zone)
+		revealed.Parent = parent or workspace
+		task.delay(8, function()
+			if revealed and revealed.Parent then
+				revealed:Destroy()
+			end
+		end)
+	end)
 end
 
 -- Animacion de parada (portero salva)

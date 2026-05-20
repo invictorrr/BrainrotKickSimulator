@@ -788,7 +788,7 @@ task.delay(3, function()
     local hintLabel = Instance.new("TextLabel")
     hintLabel.Size = UDim2.new(1, 0, 0.7, 0)
     hintLabel.BackgroundTransparency = 1
-    hintLabel.Text = "Bienvenido al Brainrot Goal Kick Simulator!\n\nClick para patear | Ajusta la distancia\nMete gol para capturar brainrots!"
+    hintLabel.Text = "Bienvenido al Brainrot Goal Kick Simulator!\n\nPulsa PATEAR para disparar\nMete gol para capturar brainrots!"
     hintLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     hintLabel.Font = Enum.Font.GothamBold
     hintLabel.TextSize = 14
