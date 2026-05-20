@@ -155,7 +155,7 @@ local function updateBaseSlots()
     -- Actualizar display de income
     local incomeDisplay = basePanel:FindFirstChild("IncomeDisplay")
     if incomeDisplay then
-        incomeDisplay.Text = "💰 Income total: " .. tostring(totalIncome) .. " coins/seg (x" .. tostring(playerStats.rebirthMultiplier) .. " rebirth)"
+        incomeDisplay.Text = "Income total: " .. tostring(totalIncome) .. " coins/seg (x" .. tostring(playerStats.rebirthMultiplier) .. " rebirth)"
     end
 end
 
@@ -214,7 +214,7 @@ function updateInventoryUI()
             local nameLabel = Instance.new("TextLabel")
             nameLabel.Size = UDim2.new(0.55, 0, 1, 0)
             nameLabel.BackgroundTransparency = 1
-            nameLabel.Text = "🧠 " .. brainrotData.name .. "\n[" .. brainrotData.rarity .. "]" .. (brainrotData.isBoss and " 👑" or "")
+            nameLabel.Text = brainrotData.name .. "\n[" .. brainrotData.rarity .. "]" .. (brainrotData.isBoss and " BOSS" or "")
             nameLabel.TextColor3 = rarityColors[brainrotData.rarity] or Color3.new(1,1,1)
             nameLabel.TextXAlignment = Enum.TextXAlignment.Left
             nameLabel.Font = Enum.Font.GothamBold
@@ -250,7 +250,7 @@ function updateInventoryUI()
             btnCorner.Parent = placeBtn
 
             if entry.placedInBase then
-                placeBtn.Text = "❌ Quitar"
+                placeBtn.Text = "Quitar"
                 placeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
                 placeBtn.TextColor3 = Color3.new(1, 1, 1)
 
@@ -260,13 +260,13 @@ function updateInventoryUI()
                         RemoteEvents.RemoveBrainrotFromBase:FireServer(idx, entry.baseSlot)
                         entry.placedInBase = false
                         entry.baseSlot = nil
-                        placeBtn.Text = "📍 Colocar"
+                        placeBtn.Text = "Colocar"
                         placeBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
                         updateBaseSlots()
                     end
                 end)
             else
-                placeBtn.Text = "📍 Colocar"
+                placeBtn.Text = "Colocar"
                 placeBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
                 placeBtn.TextColor3 = Color3.new(1, 1, 1)
 
@@ -292,7 +292,7 @@ function updateInventoryUI()
                         RemoteEvents.PlaceBrainrot:FireServer(idx, slotFound)
                         entry.placedInBase = true
                         entry.baseSlot = slotFound
-                        placeBtn.Text = "❌ Quitar"
+                        placeBtn.Text = "Quitar"
                         placeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
                         updateBaseSlots()
                     end

@@ -166,7 +166,7 @@ local function updateIncomeBoard(player)
     local data = PlayerData.GetData(player)
     local mult = data and data.rebirthMultiplier or 1
 
-    label.Text = "💰 Income: " .. tostring(income) .. " coins/seg\n🔄 x" .. tostring(mult) .. " rebirth"
+    label.Text = "Income: " .. tostring(income) .. " coins/seg\nx" .. tostring(mult) .. " rebirth"
 end
 
 -- ═══════════════════════════════════════════

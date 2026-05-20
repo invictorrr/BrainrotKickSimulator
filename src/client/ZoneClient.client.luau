@@ -42,7 +42,7 @@ local zoneTitle = Instance.new("TextLabel")
 zoneTitle.Size = UDim2.new(1, 0, 0, 40)
 zoneTitle.BackgroundColor3 = Color3.fromRGB(30, 30, 60)
 zoneTitle.BorderSizePixel = 0
-zoneTitle.Text = "🏟️ SELECCIONAR ZONA"
+zoneTitle.Text = "SELECCIONAR ZONA"
 zoneTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 zoneTitle.Font = Enum.Font.GothamBlack
 zoneTitle.TextSize = 18
@@ -108,10 +108,10 @@ local zoneColors = {
     [3] = Color3.fromRGB(200, 50, 50),    -- Red for Zone 3
 }
 
-local zoneEmojis = {
-    [1] = "🌿",
-    [2] = "🏟️",
-    [3] = "☢️",
+local zonePrefix = {
+    [1] = "Z1",
+    [2] = "Z2",
+    [3] = "Z3",
 }
 
 local function createZoneButton(zoneId)
@@ -136,7 +136,7 @@ local function createZoneButton(zoneId)
     local infoLabel = Instance.new("TextLabel")
     infoLabel.Size = UDim2.new(0.7, 0, 1, 0)
     infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = zoneEmojis[zoneId] .. " " .. zone.name
+    infoLabel.Text = (zonePrefix[zoneId] or "") .. " " .. zone.name
     infoLabel.TextColor3 = Color3.new(1, 1, 1)
     infoLabel.TextXAlignment = Enum.TextXAlignment.Left
     infoLabel.Font = Enum.Font.GothamBold
@@ -152,7 +152,7 @@ local function createZoneButton(zoneId)
     reqLabel.Size = UDim2.new(0.3, 0, 1, 0)
     reqLabel.Position = UDim2.new(0.7, 0, 0, 0)
     reqLabel.BackgroundTransparency = 1
-    reqLabel.Text = "⚡" .. tostring(zone.requiredPower)
+    reqLabel.Text = "Req: " .. tostring(zone.requiredPower)
     reqLabel.TextColor3 = Color3.fromRGB(255, 255, 200)
     reqLabel.Font = Enum.Font.GothamBold
     reqLabel.TextSize = 12
@@ -164,7 +164,7 @@ local function createZoneButton(zoneId)
     lockLabel.Size = UDim2.new(1, 0, 1, 0)
     lockLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     lockLabel.BackgroundTransparency = 0.5
-    lockLabel.Text = "🔒 Bloqueado (⚡" .. tostring(zone.requiredPower) .. ")"
+    lockLabel.Text = "Bloqueado (" .. tostring(zone.requiredPower) .. ")"
     lockLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     lockLabel.Font = Enum.Font.GothamBold
     lockLabel.TextSize = 14
@@ -200,7 +200,7 @@ baseBtn.Name = "BaseBtn"
 baseBtn.Size = UDim2.new(1, 0, 0, 50)
 baseBtn.BackgroundColor3 = Color3.fromRGB(100, 80, 40)
 baseBtn.BorderSizePixel = 0
-baseBtn.Text = "🏠 Ir a la Base"
+baseBtn.Text = "Ir a la Base"
 baseBtn.TextColor3 = Color3.new(1, 1, 1)
 baseBtn.Font = Enum.Font.GothamBold
 baseBtn.TextSize = 14
@@ -245,7 +245,7 @@ if hud then
         zoneNavBtn.Position = UDim2.new(1, -130, 0, 0)
         zoneNavBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 150)
         zoneNavBtn.BorderSizePixel = 0
-        zoneNavBtn.Text = "🏟️ Zonas"
+        zoneNavBtn.Text = "Zonas"
         zoneNavBtn.TextColor3 = Color3.new(1, 1, 1)
         zoneNavBtn.Font = Enum.Font.GothamBold
         zoneNavBtn.TextSize = 13
@@ -315,7 +315,7 @@ local function createTeleportPads()
                 local label = Instance.new("TextLabel")
                 label.Size = UDim2.new(1, 0, 1, 0)
                 label.BackgroundTransparency = 1
-                label.Text = "🏟️ " .. zoneData.name .. "\nClick Zonas para teletransportarte"
+                label.Text = zoneData.name .. "\nClick Zonas para teletransportarte"
                 label.TextColor3 = Color3.new(1, 1, 1)
                 label.Font = Enum.Font.GothamBold
                 label.TextSize = 11

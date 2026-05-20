@@ -552,7 +552,7 @@ local function createCaptureCelebration(brainrotData)
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0.25, 0)
     title.BackgroundTransparency = 1
-    title.Text = brainrotData.isBoss and "🏆 BOSS CAPTURADO!" or "🧠 BRAINROT CAPTURADO!"
+    title.Text = brainrotData.isBoss and "BOSS CAPTURADO!" or "BRAINROT CAPTURADO!"
     title.TextColor3 = colors.text
     title.Font = Enum.Font.GothamBlack
     title.TextSize = 22
@@ -636,7 +636,7 @@ local function createZoneUnlockEffect(zoneName)
     announcement.Position = UDim2.new(0.2, 0, 0.35, 0)
     announcement.BackgroundColor3 = Color3.fromRGB(0, 50, 100)
     announcement.BackgroundTransparency = 0.3
-    announcement.Text = "🔓 NUEVA ZONA DESBLOQUEADA!\n🏟️ " .. zoneName
+    announcement.Text = "NUEVA ZONA DESBLOQUEADA!\n" .. zoneName
     announcement.TextColor3 = Color3.fromRGB(255, 255, 255)
     announcement.Font = Enum.Font.GothamBlack
     announcement.TextSize = 28
@@ -788,7 +788,7 @@ task.delay(3, function()
     local hintLabel = Instance.new("TextLabel")
     hintLabel.Size = UDim2.new(1, 0, 0.7, 0)
     hintLabel.BackgroundTransparency = 1
-    hintLabel.Text = "🧠 Bienvenido al Brainrot Goal Kick Simulator!\n\n🖱️ Click para patear | 📏 Ajusta la distancia\n⚽ Mete gol para capturar brainrots!"
+    hintLabel.Text = "Bienvenido al Brainrot Goal Kick Simulator!\n\nClick para patear | Ajusta la distancia\nMete gol para capturar brainrots!"
     hintLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     hintLabel.Font = Enum.Font.GothamBold
     hintLabel.TextSize = 14
@@ -800,7 +800,7 @@ task.delay(3, function()
     dismissBtn.Position = UDim2.new(0.25, 0, 0.75, 0)
     dismissBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
     dismissBtn.BorderSizePixel = 0
-    dismissBtn.Text = "⚽ A JUGAR!"
+    dismissBtn.Text = "A JUGAR!"
     dismissBtn.TextColor3 = Color3.new(1, 1, 1)
     dismissBtn.Font = Enum.Font.GothamBold
     dismissBtn.TextSize = 14
@@ -846,7 +846,7 @@ local function showStreakBonusNotification(streak, bonus)
     notif.Position = UDim2.new(0.5, -150, 0.15, 0)
     notif.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
     notif.BackgroundTransparency = 0.3
-    notif.Text = "🔥 STREAK x" .. tostring(streak) .. "! +" .. string.format("%.0f", bonus * 100) .. "% bonus coins!"
+    notif.Text = "STREAK x" .. tostring(streak) .. "! +" .. string.format("%.0f", bonus * 100) .. "% bonus coins!"
     notif.TextColor3 = Color3.fromRGB(255, 255, 255)
     notif.Font = Enum.Font.GothamBlack
     notif.TextSize = 16

@@ -11,7 +11,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
-local CLIENT_VERSION = "v2026.05.20-8"
+local CLIENT_VERSION = "v2026.05.20-9"
 
 local Workspace = workspace
 local LocalCamera = Workspace.CurrentCamera
@@ -218,7 +218,7 @@ end
 local function updateStreakDisplay()
     if not streakLabel then return end
     if goalStreak >= 2 then
-        streakLabel.Text = "🔥 STREAK x" .. tostring(goalStreak) .. " (x" .. string.format("%.1f", streakBonusMultiplier) .. " bonus)"
+        streakLabel.Text = "STREAK x" .. tostring(goalStreak) .. " (x" .. string.format("%.1f", streakBonusMultiplier) .. " bonus)"
         -- Color based on streak
         if goalStreak >= 5 then
             streakLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
@@ -280,7 +280,7 @@ if screenGui then
     goalsLabel.Size = UDim2.new(1, 0, 0, 20)
     goalsLabel.Position = UDim2.new(0, 0, 0, 5)
     goalsLabel.BackgroundTransparency = 1
-    goalsLabel.Text = "⚽ Goles: 0"
+    goalsLabel.Text = "Goles: 0"
     goalsLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
     goalsLabel.Font = Enum.Font.GothamBold
     goalsLabel.TextSize = 12
@@ -291,7 +291,7 @@ if screenGui then
     kicksLabel.Size = UDim2.new(1, 0, 0, 20)
     kicksLabel.Position = UDim2.new(0, 0, 0, 25)
     kicksLabel.BackgroundTransparency = 1
-    kicksLabel.Text = "👟 Patadas: 0"
+    kicksLabel.Text = "Patadas: 0"
     kicksLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
     kicksLabel.Font = Enum.Font.GothamBold
     kicksLabel.TextSize = 12
@@ -302,7 +302,7 @@ if screenGui then
     accuracyLabel.Size = UDim2.new(1, 0, 0, 20)
     accuracyLabel.Position = UDim2.new(0, 0, 0, 45)
     accuracyLabel.BackgroundTransparency = 1
-    accuracyLabel.Text = "🎯 Precisión: 0%"
+    accuracyLabel.Text = "Precisión: 0%"
     accuracyLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
     accuracyLabel.Font = Enum.Font.GothamBold
     accuracyLabel.TextSize = 12
@@ -332,7 +332,7 @@ end
     label.Name = "DistanceLabel"
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.Text = "📏 " .. tostring(selectedDistance) .. " studs"
+    label.Text = tostring(selectedDistance) .. " studs"
     label.TextColor3 = Color3.fromRGB(255, 255, 0)
     label.Font = Enum.Font.GothamBold
     label.TextSize = 12
@@ -447,7 +447,7 @@ local function updateDistanceDisplay()
     selectedDistance = computeKickDistanceFromPlayer()
 
     if distLabel then
-        distLabel.Text = "📏 Distancia: " .. tostring(selectedDistance) .. " studs"
+        distLabel.Text = "Distancia: " .. tostring(selectedDistance) .. " studs"
     end
     if sliderFill and not sliderUpdateBroken then
         local ok = pcall(function()
@@ -488,7 +488,7 @@ updateKickMarkerPosition = function()
     if billboard then
         local label = billboard:FindFirstChild("DistanceLabel")
         if label then
-            label.Text = "📏 " .. tostring(selectedDistance) .. " studs"
+            label.Text = tostring(selectedDistance) .. " studs"
         end
     end
 end
@@ -500,23 +500,23 @@ createKickMarker()
 -- ═══════════════════════════════════════════
 local function updateHUD()
     if coinsLabel then
-        coinsLabel.Text = "🪙 " .. tostring(playerStats.coins)
+        coinsLabel.Text = "Coins: " .. tostring(playerStats.coins)
     end
     if powerLabel then
-        powerLabel.Text = "⚡ Potencia: " .. tostring(playerStats.power)
+        powerLabel.Text = "Potencia: " .. tostring(playerStats.power)
     end
     if ballLabel then
-        ballLabel.Text = "⚽ " .. playerStats.ballName .. " (x" .. tostring(playerStats.ballMultiplier) .. ")"
+        ballLabel.Text = "Balon: " .. playerStats.ballName .. " (x" .. tostring(playerStats.ballMultiplier) .. ")"
     end
     if zoneLabel then
         local zone = GameConfig.Zones[playerStats.currentZone]
-        zoneLabel.Text = "🏟️ " .. (zone and zone.name or "Zona " .. tostring(playerStats.currentZone))
+        zoneLabel.Text = "Zona: " .. (zone and zone.name or tostring(playerStats.currentZone))
     end
     if incomeLabel then
-        incomeLabel.Text = "💰 Income: " .. tostring(playerStats.baseIncomePerSec) .. "/seg"
+        incomeLabel.Text = "Income: " .. tostring(playerStats.baseIncomePerSec) .. "/seg"
     end
     if rebirthLabel then
-        rebirthLabel.Text = "🔄 Rebirth: " .. tostring(playerStats.rebirths) .. " (x" .. tostring(playerStats.rebirthMultiplier) .. ")"
+        rebirthLabel.Text = "Rebirth: " .. tostring(playerStats.rebirths) .. " (x" .. tostring(playerStats.rebirthMultiplier) .. ")"
     end
     
     -- Update stats display
@@ -526,14 +526,14 @@ local function updateHUD()
         local kicksLabel = statsDisplay:FindFirstChild("KicksLabel")
         local accuracyLabel = statsDisplay:FindFirstChild("AccuracyLabel")
         if goalsLabel then
-            goalsLabel.Text = "⚽ Goles: " .. tostring(playerStats.totalGoals)
+            goalsLabel.Text = "Goles: " .. tostring(playerStats.totalGoals)
         end
         if kicksLabel then
-            kicksLabel.Text = "👟 Patadas: " .. tostring(playerStats.totalKicks)
+            kicksLabel.Text = "Patadas: " .. tostring(playerStats.totalKicks)
         end
         if accuracyLabel then
             local accuracy = playerStats.totalKicks > 0 and math.floor((playerStats.totalGoals / playerStats.totalKicks) * 100) or 0
-            accuracyLabel.Text = "🎯 Precisión: " .. tostring(accuracy) .. "%"
+            accuracyLabel.Text = "Precisión: " .. tostring(accuracy) .. "%"
         end
     end
 end
@@ -641,14 +641,14 @@ displayGoalResult = function(data)
     end
 
     if data.result == "goal" then
-        resultLabel.Text = "⚽ GOL! +" .. tostring(data.coinsEarned) .. " coins!"
+        resultLabel.Text = "GOL! +" .. tostring(data.coinsEarned) .. " coins!"
         resultLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
         animateStreakPopup()
 
         if goalStreak >= 2 then
             task.delay(0.5, function()
                 if resultLabel and not indicatorActive and not isCharging then
-                    resultLabel.Text = resultLabel.Text .. " 🔥x" .. tostring(goalStreak)
+                    resultLabel.Text = resultLabel.Text .. " x" .. tostring(goalStreak)
                 end
             end)
         end
@@ -656,7 +656,7 @@ displayGoalResult = function(data)
         if data.capturedBrainrot then
             task.delay(1.2, function()
                 if resultLabel and not indicatorActive and not isCharging then
-                    resultLabel.Text = "🧠 Capturaste a " .. data.capturedBrainrot.name .. "!"
+                    resultLabel.Text = "Capturaste a " .. data.capturedBrainrot.name .. "!"
                     resultLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
                 end
             end)
@@ -673,7 +673,7 @@ displayGoalResult = function(data)
         end
 
     elseif data.result == "saved" then
-        resultLabel.Text = "🧤 " .. data.goalkeeperName .. " la paró!"
+        resultLabel.Text = data.goalkeeperName .. " la paró!"
         resultLabel.TextColor3 = Color3.fromRGB(255, 100, 0)
 
         if bar then
@@ -688,9 +688,9 @@ displayGoalResult = function(data)
 
     else
         if data.outOfRange then
-            resultLabel.Text = "💪 Falta potencia: alcance " .. tostring(data.maxKickDistance or 0) .. " studs"
+            resultLabel.Text = "Falta potencia: alcance " .. tostring(data.maxKickDistance or 0) .. " studs"
         else
-            resultLabel.Text = "💨 El balón se fue lejos!"
+            resultLabel.Text = "El balón se fue lejos!"
         end
         resultLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
     end
@@ -775,13 +775,13 @@ local function stopIndicator()
     -- Feedback visual inmediato
     if resultLabel then
         if zone == "green" then
-            resultLabel.Text = "✅ PERFECTO!"
+            resultLabel.Text = "PERFECTO!"
             resultLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
         elseif zone == "yellow" then
-            resultLabel.Text = "⚠️ RIESGO..."
+            resultLabel.Text = "RIESGO..."
             resultLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
         else
-            resultLabel.Text = "❌ DEMASIADA FUERZA!"
+            resultLabel.Text = "DEMASIADA FUERZA!"
             resultLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
         end
     end
@@ -936,7 +936,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
         -- Aviso visual durante focus
         if resultLabel then
-            resultLabel.Text = "🎯 Apunta al portero..."
+            resultLabel.Text = "Apunta al portero..."
             resultLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         end
 
@@ -1028,7 +1028,7 @@ RemoteEvents.ShowGoalkeepers.OnClientEvent:Connect(function(data)
         goalkeeperFrame.Visible = true
     end
     if gkName then
-        gkName.Text = "🧠 " .. data.goalkeeperName
+        gkName.Text = data.goalkeeperName
     end
     if gkRarity then
         local rarityColors = {
@@ -1093,7 +1093,7 @@ task.spawn(function()
         if playerStats.baseIncomePerSec > 0 then
             accumulatedIncome = accumulatedIncome + playerStats.baseIncomePerSec
             if claimButton then
-                claimButton.Text = "💰 Claim: " .. tostring(math.floor(accumulatedIncome)) .. " coins"
+                claimButton.Text = "Claim: " .. tostring(math.floor(accumulatedIncome)) .. " coins"
             end
         end
     end

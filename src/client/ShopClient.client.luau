@@ -116,7 +116,7 @@ if powerPanel then
                         buyBtn.Text = "Comprando..."
                         RemoteEvents.BuyPower:FireServer()
                         task.wait(0.3)
-                        buyBtn.Text = "✓"
+                        buyBtn.Text = "OK"
                         buyBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
                         task.wait(0.5)
                         buyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
@@ -139,7 +139,7 @@ if ballPanel then
                 child.Text = "Comprando..."
                 RemoteEvents.BuyBall:FireServer()
                 task.wait(0.3)
-                child.Text = "✓"
+                child.Text = "OK"
                 child.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
                 task.wait(0.5)
                 child.BackgroundColor3 = Color3.fromRGB(255, 150, 0)
@@ -160,7 +160,7 @@ if rebirthPanel then
             rbButton.Text = "Rebirth..."
             RemoteEvents.Rebirth:FireServer()
             task.wait(0.5)
-            rbButton.Text = "🔄 HACER REBIRTH"
+            rbButton.Text = "HACER REBIRTH"
         end)
     end
 
@@ -170,9 +170,9 @@ if rebirthPanel then
         if rbReqs then
             if nextRebirth then
                 rbReqs.Text = "Requisitos para Rebirth " .. tostring(playerStats.rebirths + 1) .. ":\n"
-                    .. "⚡ Potencia: " .. tostring(nextRebirth.requiredPower) .. " (tienes " .. tostring(playerStats.power) .. ")\n"
-                    .. "🧠 Brainrots: " .. tostring(nextRebirth.requiredBrainrots) .. " (tienes " .. tostring(playerStats.brainrotCount) .. ")\n"
-                    .. "🎁 Recompensa: x" .. tostring(nextRebirth.multiplier) .. " permanente"
+                    .. "Potencia: " .. tostring(nextRebirth.requiredPower) .. " (tienes " .. tostring(playerStats.power) .. ")\n"
+                    .. "Brainrots: " .. tostring(nextRebirth.requiredBrainrots) .. " (tienes " .. tostring(playerStats.brainrotCount) .. ")\n"
+                    .. "Recompensa: x" .. tostring(nextRebirth.multiplier) .. " permanente"
 
                 local canRebirth = playerStats.power >= nextRebirth.requiredPower
                     and playerStats.brainrotCount >= nextRebirth.requiredBrainrots
@@ -181,13 +181,13 @@ if rebirthPanel then
                     rbButton.BackgroundColor3 = canRebirth
                         and Color3.fromRGB(180, 0, 255)
                         or Color3.fromRGB(80, 80, 80)
-                    rbButton.Text = canRebirth and "🔄 HACER REBIRTH!" or "🔒 Requisitos insuficientes"
+                    rbButton.Text = canRebirth and "HACER REBIRTH!" or "Requisitos insuficientes"
                 end
             else
-                rbReqs.Text = "¡Ya tienes el máximo de Rebirths!\nEres un verdadero Sigma. 🏆"
+                rbReqs.Text = "Ya tienes el maximo de Rebirths!\nEres un verdadero Sigma."
                 if rbButton then
                     rbButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-                    rbButton.Text = "🏆 MÁXIMO"
+                    rbButton.Text = "MÁXIMO"
                 end
             end
         end

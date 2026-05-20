@@ -182,7 +182,9 @@ local function createSoccerBall(startPos: Vector3, ballData): BasePart
     ball.Color = (ballData and ballData.color) or Color3.fromRGB(245, 245, 245)
     ball.CFrame = CFrame.new(startPos)
     ball.Anchored = false
-    ball.CanCollide = true
+    -- Sin colisión al inicio: la habilitamos tras unos ms para que el balón
+    -- no rebote contra el cuerpo del propio jugador al spawnear.
+    ball.CanCollide = false
     ball.CanTouch = false
     ball.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.5, 0.6, 1, 1)
 
@@ -200,6 +202,20 @@ local function createSoccerBall(startPos: Vector3, ballData): BasePart
     end
 
     return ball
+end
+
+-- Amortigua progresivamente la velocidad para que la pelota se quede
+-- dentro de la portería en vez de salir disparada al rebotar.
+local function dampBallToRest(ball: BasePart)
+    if not ball or not ball.Parent then return end
+    task.spawn(function()
+        local t = 0
+        while ball.Parent and t < 1.8 do
+            local dt = task.wait(0.05)
+            t += dt
+            ball.AssemblyLinearVelocity = ball.AssemblyLinearVelocity * 0.55
+        end
+    end)
 end
 
 local function isBallSaved(goalkeeperModel: Instance?, ballPos: Vector3): boolean
@@ -344,6 +360,7 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
 
     -- SIEMPRE intentamos spawnear la pelota con físicas reales.
     -- Si no hay arco o personaje válido, lo único que falta es el target.
+    local spawnedBall = nil
     if hrp then
         local goalCFrame = goalModel and goalModel:GetPivot()
         local goalCenter
@@ -367,11 +384,17 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         end
         toGoalDir = toGoalDir.Unit
 
-        -- Spawn de la pelota 2 studs delante del jugador, en dirección al arco
-        local startPos = hrp.Position + (toGoalDir * 2) + Vector3.new(0, 1, 0)
+        -- Spawn 3 studs delante del jugador, ligeramente alto, para evitar
+        -- chocar contra el propio personaje al salir
+        local startPos = hrp.Position + (toGoalDir * 3) + Vector3.new(0, 1.5, 0)
+
+        -- Profundidad real de la portería (caja cerrada construida en
+        -- BrainrotSystem.CreateGoal). Apuntamos cerca de la red para que el
+        -- balón quede claramente dentro al hacer gol.
+        local goalDepth = (goalModel and goalModel:GetAttribute("GoalDepth")) or 4
 
         -- Objetivo del tiro:
-        --   Green → escuadra (top corner) aleatoria izquierda/derecha
+        --   Green → escuadra (top corner) profunda, casi pegada a la red
         --   Yellow/Red → centro con desviación (spread)
         local targetWorldPos
         local flightTime
@@ -380,9 +403,9 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
             local goalHeight = (goalModel and goalModel:GetAttribute("GoalHeight")) or 12
             local side = (math.random() < 0.5) and -1 or 1
             local cornerLocal = Vector3.new(
-                side * (goalWidth / 2 - 1.5),
-                goalHeight - 1.5,
-                0.6 -- ligeramente dentro del arco para que sí entre
+                side * (goalWidth / 2 - 1.8),
+                goalHeight - 1.8,
+                goalDepth * 0.75  -- bien adentro de la caja del arco
             )
             targetWorldPos = goalCFrame:PointToWorldSpace(cornerLocal)
             -- Tiro fuerte y directo: flight time corto = trayectoria casi
@@ -426,31 +449,26 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
             (math.random() * 2 - 1) * 4
         )
         activeBallsByPlayer[player.UserId] = ball
+        spawnedBall = ball
+        -- Activar colisión cuando ya se ha alejado del personaje
+        task.delay(0.12, function()
+            if ball.Parent then
+                ball.CanCollide = true
+            end
+        end)
         -- Sin Debris: la pelota persiste en el campo. Se elimina cuando el
         -- jugador patea de nuevo (clearActiveBall) o cuando se desconecta.
 
         -- Simulación de detección de gol/parada (no controla la pelota,
         -- solo observa su posición real para decidir el resultado).
         local elapsed = 0
-        local trackedBall = ball
         while ball.Parent and elapsed < 2.8 do
             elapsed += task.wait(0.04)
             local pos = ball.Position
 
             if goalZone and isPointInsidePart(pos, goalZone) then
                 result = "goal"
-                -- Amortiguar progresivamente para que se quede dentro de la
-                -- red en vez de salir disparada. Se hace en una tarea aparte
-                -- para no bloquear el resto del handler.
-                task.spawn(function()
-                    local t = 0
-                    while trackedBall.Parent and t < 1.5 do
-                        local dt = task.wait(0.05)
-                        t += dt
-                        trackedBall.AssemblyLinearVelocity =
-                            trackedBall.AssemblyLinearVelocity * 0.55
-                    end
-                end)
+                dampBallToRest(ball)
                 break
             end
 
@@ -467,7 +485,12 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
 
     -- Garantía verde: si el indicador fue verde y hay alcance, es gol seguro
     if indicatorZone == "green" and not outOfRange then
-        result = "goal"
+        if result ~= "goal" then
+            result = "goal"
+            -- También amortiguar si el loop no detectó el cruce (raro pero
+            -- por si el balón aún no llegó al GoalZone en 2.8s)
+            dampBallToRest(spawnedBall)
+        end
     end
 
     if result == "goal" then
