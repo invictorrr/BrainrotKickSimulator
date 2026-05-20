@@ -1,0 +1,29 @@
+{
+  "name": "BrainrotKickSimulator",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$path": "src/shared"
+    },
+    "ServerScriptService": {
+      "$path": "src/server"
+    },
+    "StarterGui": {
+      "$properties": {
+        "ScreenOrientation": "Sensor"
+      },
+      "$path": "src/gui"
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/client"
+      },
+      "$properties": {
+        "AvatarJointUpgrade_SerializedRollout": "Enabled",
+        "CameraMaxZoomDistance": 128.0,
+        "CharacterBreakJointsOnDeath": false,
+        "CharacterUseJumpPower": false
+      }
+    }
+  }
+}

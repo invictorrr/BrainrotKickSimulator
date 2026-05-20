@@ -1,0 +1,16 @@
+# Place files (large binary, redundant with src/)
+*.rbxlx
+*.rbxl
+
+# Roblox Studio lock files
+*.rbxlx.lock
+*.rbxl.lock
+
+# Build artifacts
+sourcemap.json
+
+# Rokit backups
+*.bak
+
+# Claude Code internal
+.claude/
