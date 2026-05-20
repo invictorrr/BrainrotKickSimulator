@@ -133,9 +133,24 @@ do
 end
 
 local BOSS_BY_ZONE = {
-	[1] = "Cappuccino Assassino",
-	[2] = "BombombiniGusini",
-	[3] = "Strawberry Elephant",
+	[1]  = "Cappuccino Assassino",
+	[2]  = "BombombiniGusini",
+	[3]  = "Strawberry Elephant",
+	[4]  = "Nuclearo Dinossauro",
+	[5]  = "BombardinoCrocodilo",
+	[6]  = "Graipuss Medussi",
+	[7]  = "Tralaledon",
+	[8]  = "Sigma Boy",
+	[9]  = "Trippi Troppi Troppa Trippa",
+	[10] = "Skibidi Toilet",
+	[11] = "Illuminati",
+	[12] = "Odin Din Din Dun",
+	[13] = "Karkerkar Kurkur",
+	[14] = "Espresso Signora",
+	[15] = "La Grande Combinasion",
+	[16] = "La Vaca Saturno Saturnita",
+	[17] = "Lirili Larila",
+	[18] = "Smurf Cat",
 }
 
 local RARITY_CYCLE = { "Common", "Common", "Rare", "Epic", "Legendary" }
@@ -146,11 +161,14 @@ end
 
 local function buildBrainrotsFromPack(packNames: { string })
 	local total = #packNames
-	local perZone = math.max(1, math.ceil(total / 3))
+	local zoneCount = 0
+	for _ in pairs(GameConfig.Zones) do zoneCount += 1 end
+	zoneCount = math.max(1, zoneCount)
+	local perZone = math.max(1, math.ceil(total / zoneCount))
 	local brainrots = {}
 
 	for index, displayName in ipairs(packNames) do
-		local zone = math.min(3, math.ceil(index / perZone))
+		local zone = math.min(zoneCount, math.ceil(index / perZone))
 		local zoneData = GameConfig.Zones[zone]
 		local requiredPower = zoneData and zoneData.requiredPower or 1
 		local bossName = BOSS_BY_ZONE[zone]
@@ -167,7 +185,7 @@ local function buildBrainrotsFromPack(packNames: { string })
 
 		local rarityData = GameConfig.Rarities[rarity]
 		local coinsBase = rarityData and rarityData.coinsPerSecBase or 1
-		local zoneScale = 1 + (zone - 1) * 2.5
+		local zoneScale = 1 + (zone - 1) * 0.85
 
 		table.insert(brainrots, {
 			id = normalizeId(displayName),
@@ -185,50 +203,68 @@ local function buildBrainrotsFromPack(packNames: { string })
 end
 
 -- ═══════════════════════════════════════════
--- ZONAS
+-- ZONAS (18 zonas progresivas alineadas con el HD Simulator Map)
 -- ═══════════════════════════════════════════
-GameConfig.Zones = {
-    [1] = {
-        name = "Campo Tralalero",
-        requiredPower = 1,
-        maxDistance = 80,       -- studs desde la portería
-        minDistance = 15,       -- distancia mínima (punto de penalty)
-        penaltyDistance = 15,   -- punto de penalty
-        goalWidth = 24,
-        goalHeight = 14,
-        baseCoinsPerGoal = 5,
-        distanceCoinMultiplier = 0.5, -- coins extra por stud de distancia
-    },
-    [2] = {
-        name = "Estadio Bombardino",
-        requiredPower = 15,
-        maxDistance = 100,
-        minDistance = 20,
-        penaltyDistance = 20,
-        goalWidth = 22,
-        goalHeight = 13,
-        baseCoinsPerGoal = 15,
-        distanceCoinMultiplier = 0.8,
-    },
-    [3] = {
-        name = "Arena Nuclearo",
-        requiredPower = 40,
-        maxDistance = 120,
-        minDistance = 25,
-        penaltyDistance = 25,
-        goalWidth = 20,
-        goalHeight = 12,
-        baseCoinsPerGoal = 40,
-        distanceCoinMultiplier = 1.2,
-    },
+-- Cada zona representa una "porción del mapa" desde la que el jugador dispara
+-- a la siguiente puerta. Cuando hace gol, desbloquea la zona N+1.
+-- Los nombres se mantienen alineados con las carpetas del mapa (LevelManager).
+local ZONE_THEMES = {
+    "Campo Tralalero",  -- 1  (lobby / spawn → Gate.Desert)
+    "Oasis Desierto",   -- 2  (Desert)
+    "Lago Brumoso",     -- 3  (Lake)
+    "Bosque Caramelo",  -- 4  (Candy)
+    "Glaciar Bombardo", -- 5  (Glacier)
+    "Crater Volcánico", -- 6  (Volcano)
+    "Profundo Atlántico", -- 7 (Atlantic)
+    "Cementerio Sahur", -- 8  (Cemetery)
+    "Dojo Ninja",       -- 9  (Ninja)
+    "Fábrica de Juguetes", -- 10 (Toy)
+    "Escuela Brainrot", -- 11 (School)
+    "Torre del Mago",   -- 12 (Mage)
+    "Castillo Medieval",-- 13 (Castle / Medieval)
+    "Ciudad Sigma",     -- 14 (City)
+    "Bosque Encantado", -- 15 (Forest)
+    "Pradera Otoñal",   -- 16 (Autumn)
+    "Granja Saturno",   -- 17 (Farm)
+    "Salón VIP Cocofanto", -- 18 (VIP)
 }
 
--- Porterías por defecto (mismo layout que MainGame / marcadores en -Z)
-GameConfig.ZoneGoalCFrames = {
-	[1] = CFrame.new(0, 0, 0),
-	[2] = CFrame.new(200, 0, 0),
-	[3] = CFrame.new(400, 0, 0),
-}
+local function buildZones()
+    local zones = {}
+    for i = 1, #ZONE_THEMES do
+        local t = (i - 1) / math.max(1, #ZONE_THEMES - 1) -- 0 .. 1
+        local requiredPower = math.floor(1 + (i - 1) * 8)            -- 1, 9, 17, ... 137
+        local minDistance   = math.floor(15 + t * 65)                 -- 15 → 80
+        local maxDistance   = math.floor(80 + t * 220)                -- 80 → 300
+        local penaltyDist   = minDistance
+        local goalWidth     = math.max(14, math.floor(24 - t * 10))   -- 24 → 14
+        local goalHeight    = math.max(10, math.floor(14 - t * 4))    -- 14 → 10
+        local baseCoins     = math.floor(5 * (1.30 ^ (i - 1)))         -- 5 → ~430
+        local distMult      = 0.5 + t * 1.5                            -- 0.5 → 2.0
+
+        zones[i] = {
+            name = ZONE_THEMES[i],
+            requiredPower = requiredPower,
+            maxDistance = maxDistance,
+            minDistance = minDistance,
+            penaltyDistance = penaltyDist,
+            goalWidth = goalWidth,
+            goalHeight = goalHeight,
+            baseCoinsPerGoal = baseCoins,
+            distanceCoinMultiplier = distMult,
+        }
+    end
+    return zones
+end
+
+GameConfig.Zones = buildZones()
+
+-- Porterías por defecto (fallback cuando NO hay HD Simulator Map cargado).
+-- Cada zona separada 200 studs en X.
+GameConfig.ZoneGoalCFrames = {}
+for i = 1, #ZONE_THEMES do
+    GameConfig.ZoneGoalCFrames[i] = CFrame.new((i - 1) * 200, 0, 0)
+end
 
 -- ═══════════════════════════════════════════
 -- TIENDA DE POTENCIA
@@ -306,12 +342,31 @@ local function findZoneGoalModel(zoneModel: Instance, zoneId: number): Instance?
 	return nil
 end
 
+local function findHDGoalModel(zoneId: number): Instance?
+	local goalsFolder = workspace:FindFirstChild("BKS_Goals")
+	if not goalsFolder then return nil end
+	local prefix = "Goal_Gate_" .. tostring(zoneId) .. "_"
+	for _, child in goalsFolder:GetChildren() do
+		if child:IsA("Model") and string.sub(child.Name, 1, #prefix) == prefix then
+			return child
+		end
+	end
+	return nil
+end
+
 function GameConfig.GetGoalCFrame(zoneId: number): CFrame
 	local fallback = GameConfig.ZoneGoalCFrames[zoneId] or CFrame.new(0, 0, 0)
 
+	-- 1) HD Simulator Map (gates en BKS_Goals)
+	local hdGoal = findHDGoalModel(zoneId)
+	if hdGoal then
+		return hdGoal:GetPivot()
+	end
+
+	-- 2) Sistema legacy (workspace.Zones.Zone<n>)
 	local zonesFolder = workspace:FindFirstChild("Zones")
 	if not zonesFolder then
-		zonesFolder = workspace:WaitForChild("Zones", 8)
+		zonesFolder = workspace:WaitForChild("Zones", 4)
 	end
 
 	if zonesFolder then

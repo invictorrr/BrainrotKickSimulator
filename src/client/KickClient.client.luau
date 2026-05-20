@@ -11,7 +11,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local RemoteEvents = ReplicatedStorage.RemoteEvents
 local GameConfig = require(ReplicatedStorage.GameConfig)
-local CLIENT_VERSION = "v2026.05.20-9"
+local CLIENT_VERSION = "v2026.05.20-10"
 
 local Workspace = workspace
 local LocalCamera = Workspace.CurrentCamera

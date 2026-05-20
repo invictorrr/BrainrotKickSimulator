@@ -14,3 +14,9 @@ sourcemap.json
 
 # Claude Code internal
 .claude/
+
+# Local CLI tools (lune.exe, remodel.exe, scripts auxiliares)
+.tools/
+.git_commit_msg.txt
+remodel.zip
+lune.zip

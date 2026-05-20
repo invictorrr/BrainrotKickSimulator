@@ -5,10 +5,12 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local GameConfig = require(ReplicatedStorage.GameConfig)
-local PlayerData = require(game.ServerScriptService.PlayerData)
+local GameConfig    = require(ReplicatedStorage.GameConfig)
+local PlayerData    = require(game.ServerScriptService.PlayerData)
 local BrainrotSystem = require(game.ServerScriptService.BrainrotSystem)
-local RemoteEvents = ReplicatedStorage.RemoteEvents
+local LevelManager  = require(game.ServerScriptService.LevelManager)
+local KickMechanic  = require(game.ServerScriptService.KickMechanic)
+local RemoteEvents  = ReplicatedStorage.RemoteEvents
 
 -- ═══════════════════════════════════════════
 -- REFERENCIAS AL MAPA
@@ -19,14 +21,18 @@ if not zonesFolder.Parent then
     zonesFolder.Parent = workspace
 end
 
+-- LevelManager se encarga del nuevo mapa (18 zonas con Gates).
+-- Si el HD Simulator Map no está cargado, devuelve nil para todo y caemos al
+-- sistema legacy de zonas (workspace.Zones.Zone1/2/3).
+LevelManager.Init(BrainrotSystem)
+
 -- ═══════════════════════════════════════════
--- POSICIONES DE LAS ZONAS (porterías)
+-- POSICIONES LEGACY (sólo se usan si no hay HD map)
 -- ═══════════════════════════════════════════
-local zonePositions = {
-    [1] = CFrame.new(0, 0, 0),
-    [2] = CFrame.new(200, 0, 0),
-    [3] = CFrame.new(400, 0, 0),
-}
+local zonePositions = {}
+for i = 1, 18 do
+    zonePositions[i] = CFrame.new((i - 1) * 200, 0, 0)
+end
 
 -- ═══════════════════════════════════════════
 -- SETUP INICIAL DE ZONAS (solo si no existen ya)
@@ -86,8 +92,27 @@ local function setupZone(zoneId)
     zoneModel:PivotTo(goalPos)
 end
 
-for zoneId, _ in pairs(GameConfig.Zones) do
-    setupZone(zoneId)
+if not LevelManager.IsHDMapPresent() then
+    -- Sólo creamos zonas legacy si el mapa nuevo no está disponible.
+    for zoneId, _ in pairs(GameConfig.Zones) do
+        setupZone(zoneId)
+    end
+end
+
+-- Devuelve la portería para la zona del jugador, usando el HD map si está
+-- presente, o las zonas legacy en caso contrario.
+local function resolveGoalContext(zoneId: number)
+    local hdGoal, hdCFrame = LevelManager.GetGoalForZone(zoneId)
+    if hdGoal then
+        local goalZone = hdGoal:FindFirstChild("GoalZone")
+        return hdGoal, (goalZone and goalZone:IsA("BasePart")) and goalZone or nil, hdCFrame
+    end
+    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+    if not zoneModel then return nil, nil, nil end
+    local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
+    if not (goal and goal:IsA("Model")) then return nil, nil, zoneModel:GetPivot() end
+    local goalZone = goal:FindFirstChild("GoalZone")
+    return goal, (goalZone and goalZone:IsA("BasePart")) and goalZone or nil, goal:GetPivot()
 end
 
 -- ═══════════════════════════════════════════
@@ -135,32 +160,9 @@ local function sendStats(player)
     })
 end
 
-local SHOT_SPREAD_BY_ZONE = {
-    green = 0,
-    yellow = 7,
-    red = 18,
-}
-
--- Reach effectivo del tiro según indicador.
---   green: llega justo (potencia justa para alcanzar el arco)
---   yellow: alcance levemente reducido
---   red: alcance muy reducido (la pelota se queda corta o desvía)
-local SHOT_POWER_MULTIPLIER = {
-    green = 1.0,
-    yellow = 0.85,
-    red = 0.55,
-}
-
-local function isPointInsidePart(point: Vector3, part: BasePart): boolean
-    local localPos = part.CFrame:PointToObjectSpace(point)
-    local half = part.Size * 0.5
-    return math.abs(localPos.X) <= half.X
-        and math.abs(localPos.Y) <= half.Y
-        and math.abs(localPos.Z) <= half.Z
-end
-
 -- Pelotas activas por jugador. Solo se mantiene 1 a la vez: al patear de
 -- nuevo, se elimina la previa para evitar pelotas huérfanas acumulándose.
+-- (La detección de gol / spread / multiplicadores vive en KickMechanic.)
 local activeBallsByPlayer: { [number]: BasePart } = {}
 
 local function clearActiveBall(player: Player)
@@ -218,38 +220,18 @@ local function dampBallToRest(ball: BasePart)
     end)
 end
 
-local function isBallSaved(goalkeeperModel: Instance?, ballPos: Vector3): boolean
-    if not goalkeeperModel then
-        return false
-    end
-
-    local saveRadius = 2.2
-    for _, inst in ipairs(goalkeeperModel:GetDescendants()) do
-        if inst:IsA("BasePart") then
-            local r = (inst.Size.Magnitude * 0.25) + saveRadius
-            if (inst.Position - ballPos).Magnitude <= r then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function getGoalObjects(zoneId: number): (Model?, BasePart?)
-    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
-    if not zoneModel then
-        return nil, nil
-    end
-    local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
-    if not goal or not goal:IsA("Model") then
-        return nil, nil
-    end
-    local goalZone = goal:FindFirstChild("GoalZone")
-    if goalZone and goalZone:IsA("BasePart") then
-        return goal, goalZone
-    end
-    return goal, nil
-end
+-- Inicialización de la mecánica de patada (módulo intercambiable).
+-- KickMechanic se ocupa de spawnear la pelota y de la detección de gol/parada;
+-- nosotros sólo le proveemos los "ganchos" para crear pelota y manejar su
+-- ciclo de vida en el servidor.
+KickMechanic.Init({
+    createBall      = createSoccerBall,
+    onBallSpawned   = function(player, ball)
+        activeBallsByPlayer[player.UserId] = ball
+    end,
+    clearActiveBall = clearActiveBall,
+    dampBallToRest  = dampBallToRest,
+})
 
 -- ═══════════════════════════════════════════
 -- SISTEMA DE PATADA
@@ -292,19 +274,24 @@ RemoteEvents.SetKickPosition.OnServerEvent:Connect(function(player, _clientDista
         rarity = goalkeeper.rarity,
     })
 
-    -- Spawn visual de siluetas → revelación en el mundo 3D
-    local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
-    if zoneModel then
-        local goal = zoneModel:FindFirstChild("Goal_Zone" .. tostring(zoneId))
-        if goal then
-            local goalPos = goal:GetPivot()
-            -- Limpiar porteros anteriores
-            for _, child in zoneModel:GetChildren() do
+    -- Spawn visual de siluetas → revelación en el mundo 3D.
+    -- Soportamos tanto el sistema HD (LevelManager) como el legacy (Zones).
+    local goalModel, _, _ = resolveGoalContext(zoneId)
+    if goalModel then
+        local container
+        local hdGoal = LevelManager.GetGoalForZone(zoneId)
+        if hdGoal then
+            container = hdGoal -- parenteamos bajo el modelo de la portería HD
+        else
+            container = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
+        end
+        if container then
+            for _, child in container:GetChildren() do
                 if child.Name == "GoalkeeperSilhouette" or child.Name == "RevealedGoalkeeper" then
                     child:Destroy()
                 end
             end
-            BrainrotSystem.SpawnGoalkeeperSequence(goalPos, goalkeeper, zoneModel)
+            BrainrotSystem.SpawnGoalkeeperSequence(goalModel:GetPivot(), goalkeeper, container)
         end
     end
 end)
@@ -348,151 +335,45 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
     if not runtime.goalStreak then runtime.goalStreak = 0 end
     PlayerData.IncrementKicks(player)
 
-    local result = "miss"
     local coinsEarned = 0
     local capturedBrainrot = nil
 
     local character = player.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    local goalModel, goalZone = getGoalObjects(zoneId)
+    local goalModel, goalZone, goalCFrame = resolveGoalContext(zoneId)
+    -- Portero revelado puede vivir bajo la zona legacy o bajo el modelo de
+    -- la portería del HD map (lo parentea BrainrotSystem.SpawnGoalkeeperSequence).
     local zoneModel = zonesFolder:FindFirstChild("Zone" .. tostring(zoneId))
-    local revealedGoalkeeper = zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper")
+    local revealedGoalkeeper = (zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper"))
+        or (goalModel and goalModel:FindFirstChild("RevealedGoalkeeper"))
 
-    -- SIEMPRE intentamos spawnear la pelota con físicas reales.
-    -- Si no hay arco o personaje válido, lo único que falta es el target.
-    local spawnedBall = nil
-    if hrp then
-        local goalCFrame = goalModel and goalModel:GetPivot()
-        local goalCenter
-        if goalZone then
-            goalCenter = goalZone.Position
-        elseif goalCFrame then
-            goalCenter = goalCFrame.Position + Vector3.new(0, 4, 0)
-        else
-            goalCenter = hrp.Position + (hrp.CFrame.LookVector * 30) + Vector3.new(0, 4, 0)
-        end
+    -- Toda la mecánica vive en KickMechanic. Le pasamos el contexto y
+    -- recibimos el resultado + la pelota spawneada (si la hubo).
+    local kickResult = KickMechanic.ResolveKick({
+        player                   = player,
+        zoneId                   = zoneId,
+        distance                 = distance,
+        indicatorZone            = indicatorZone,
+        power                    = data.power,
+        maxKickDistance          = maxKickDistance,
+        outOfRange               = outOfRange,
+        ballData                 = ballData,
+        goalModel                = goalModel,
+        goalZone                 = goalZone,
+        goalCFrame               = goalCFrame,
+        revealedGoalkeeperModel  = revealedGoalkeeper,
+        humanoidRootPart         = hrp,
+    })
 
-        -- Dirección hacia el arco (no la del personaje, así no importa
-        -- hacia dónde mire al pulsar)
-        local toGoalDir = Vector3.new(goalCenter.X - hrp.Position.X, 0, goalCenter.Z - hrp.Position.Z)
-        if toGoalDir.Magnitude < 0.001 then
-            local look = hrp.CFrame.LookVector
-            toGoalDir = Vector3.new(look.X, 0, look.Z)
-            if toGoalDir.Magnitude < 0.001 then
-                toGoalDir = Vector3.new(0, 0, -1)
-            end
-        end
-        toGoalDir = toGoalDir.Unit
+    local result = kickResult.result
 
-        -- Spawn 3 studs delante del jugador, ligeramente alto, para evitar
-        -- chocar contra el propio personaje al salir
-        local startPos = hrp.Position + (toGoalDir * 3) + Vector3.new(0, 1.5, 0)
-
-        -- Profundidad real de la portería (caja cerrada construida en
-        -- BrainrotSystem.CreateGoal). Apuntamos cerca de la red para que el
-        -- balón quede claramente dentro al hacer gol.
-        local goalDepth = (goalModel and goalModel:GetAttribute("GoalDepth")) or 4
-
-        -- Objetivo del tiro:
-        --   Green → escuadra (top corner) profunda, casi pegada a la red
-        --   Yellow/Red → centro con desviación (spread)
-        local targetWorldPos
-        local flightTime
-        if indicatorZone == "green" and goalCFrame then
-            local goalWidth = (goalModel and goalModel:GetAttribute("GoalWidth")) or 20
-            local goalHeight = (goalModel and goalModel:GetAttribute("GoalHeight")) or 12
-            local side = (math.random() < 0.5) and -1 or 1
-            local cornerLocal = Vector3.new(
-                side * (goalWidth / 2 - 1.8),
-                goalHeight - 1.8,
-                goalDepth * 0.75  -- bien adentro de la caja del arco
-            )
-            targetWorldPos = goalCFrame:PointToWorldSpace(cornerLocal)
-            -- Tiro fuerte y directo: flight time corto = trayectoria casi
-            -- recta hacia la escuadra (rocket shot)
-            flightTime = math.clamp(distance / 130, 0.32, 0.55)
-        else
-            -- Spread horizontal según indicador
-            local spreadDeg = SHOT_SPREAD_BY_ZONE[indicatorZone] or SHOT_SPREAD_BY_ZONE.red
-            local spreadRad = math.rad((math.random() * 2 - 1) * spreadDeg)
-            local shotDir = (CFrame.fromAxisAngle(Vector3.new(0, 1, 0), spreadRad):VectorToWorldSpace(toGoalDir)).Unit
-
-            local reachMultiplier = SHOT_POWER_MULTIPLIER[indicatorZone] or 0.55
-            local powerReach = maxKickDistance * reachMultiplier
-            local reach = math.min(distance, powerReach)
-            if outOfRange then
-                reach = powerReach
-            end
-            reach = math.max(reach, 5)
-
-            local targetXZ = Vector3.new(startPos.X, 0, startPos.Z) + shotDir * reach
-            local targetY = (reach >= distance - 1 and goalCenter)
-                and math.clamp(goalCenter.Y, 2, goalCenter.Y)
-                or 1
-            targetWorldPos = Vector3.new(targetXZ.X, targetY, targetXZ.Z)
-            flightTime = math.clamp(reach / 42, 0.5, 1.4)
-        end
-
-        local g = workspace.Gravity
-        local velocity = (targetWorldPos - startPos + Vector3.new(0, 0.5 * g * flightTime * flightTime, 0)) / flightTime
-
-        -- Eliminar pelota previa de este jugador y crear la nueva
-        clearActiveBall(player)
-        local ball = createSoccerBall(startPos, ballData)
-        ball.Parent = workspace
-        ball:SetNetworkOwner(nil)
-        ball.AssemblyLinearVelocity = velocity
-        -- Pequeño giro para realismo
-        ball.AssemblyAngularVelocity = Vector3.new(
-            (math.random() * 2 - 1) * 4,
-            (math.random() * 2 - 1) * 4,
-            (math.random() * 2 - 1) * 4
-        )
-        activeBallsByPlayer[player.UserId] = ball
-        spawnedBall = ball
-        -- Activar colisión cuando ya se ha alejado del personaje
-        task.delay(0.12, function()
-            if ball.Parent then
-                ball.CanCollide = true
-            end
-        end)
-        -- Sin Debris: la pelota persiste en el campo. Se elimina cuando el
-        -- jugador patea de nuevo (clearActiveBall) o cuando se desconecta.
-
-        -- Simulación de detección de gol/parada (no controla la pelota,
-        -- solo observa su posición real para decidir el resultado).
-        local elapsed = 0
-        while ball.Parent and elapsed < 2.8 do
-            elapsed += task.wait(0.04)
-            local pos = ball.Position
-
-            if goalZone and isPointInsidePart(pos, goalZone) then
-                result = "goal"
-                dampBallToRest(ball)
-                break
-            end
-
-            if indicatorZone ~= "green" and isBallSaved(revealedGoalkeeper, pos) then
-                result = "saved"
-                runtime.goalStreak = 0
-                break
-            end
-        end
-    else
-        result = "miss"
+    if not hrp then
+        runtime.goalStreak = 0
+    elseif result == "saved" then
         runtime.goalStreak = 0
     end
 
-    -- Garantía verde: si el indicador fue verde y hay alcance, es gol seguro
-    if indicatorZone == "green" and not outOfRange then
-        if result ~= "goal" then
-            result = "goal"
-            -- También amortiguar si el loop no detectó el cruce (raro pero
-            -- por si el balón aún no llegó al GoalZone en 2.8s)
-            dampBallToRest(spawnedBall)
-        end
-    end
-
+    local unlockedZone = nil
     if result == "goal" then
         runtime.goalStreak = runtime.goalStreak + 1
         local streakBonus = 1 + (runtime.goalStreak - 1) * 0.1
@@ -501,16 +382,33 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         PlayerData.AddCoins(player, coinsEarned)
         PlayerData.AddBrainrot(player, goalkeeper.id)
         PlayerData.IncrementGoals(player)
+
+        -- Progresión por gol: si el jugador acaba de marcar en su zona
+        -- actual, avanza a la siguiente y se oculta el muro/portería que
+        -- acaba de superar.
+        local maxZone = 0
+        for id, _ in pairs(GameConfig.Zones) do
+            if id > maxZone then maxZone = id end
+        end
+        if zoneId == data.currentZone and zoneId < maxZone then
+            local nextZone = zoneId + 1
+            PlayerData.UnlockZone(player, nextZone)
+            unlockedZone = nextZone
+            if LevelManager.IsHDMapPresent() then
+                LevelManager.UnlockZone(nextZone)
+            end
+        end
     elseif result ~= "saved" then
         runtime.goalStreak = 0
     end
 
-    if zoneModel and goalModel then
+    if goalModel then
         local goalPos = goalModel:GetPivot()
         if result == "goal" then
             BrainrotSystem.PlayGoalEffect(goalPos)
         elseif result == "saved" then
-            local gk = zoneModel:FindFirstChild("RevealedGoalkeeper")
+            local gk = (zoneModel and zoneModel:FindFirstChild("RevealedGoalkeeper"))
+                or goalModel:FindFirstChild("RevealedGoalkeeper")
             if gk then
                 BrainrotSystem.PlaySaveAnimation(gk)
             end
@@ -533,6 +431,7 @@ RemoteEvents.KickBall.OnServerEvent:Connect(function(player, indicatorZone)
         useServerPhysics = true,
         goalkeeperName = goalkeeper.name,
         goalStreak = runtime.goalStreak,
+        unlockedZone = unlockedZone,
     })
 
     -- Actualizar stats, lista de brainrots y leaderstats
