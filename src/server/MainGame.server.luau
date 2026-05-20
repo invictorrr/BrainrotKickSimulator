@@ -10,6 +10,7 @@ local PlayerData    = require(game.ServerScriptService.PlayerData)
 local BrainrotSystem = require(game.ServerScriptService.BrainrotSystem)
 local LevelManager  = require(game.ServerScriptService.LevelManager)
 local KickMechanic  = require(game.ServerScriptService.KickMechanic)
+local BaseSetup     = require(game.ServerScriptService.BaseSetup)
 local RemoteEvents  = ReplicatedStorage.RemoteEvents
 
 -- ═══════════════════════════════════════════
@@ -716,8 +717,12 @@ RemoteEvents.ZoneTeleport.OnServerEvent:Connect(function(player, targetZone)
     if not hrp then return end
 
     if targetZone == 0 then
-        -- Teleport to base
-        hrp.CFrame = baseTeleportPosition
+        local baseCf = BaseSetup.GetBaseTeleportCFrame(player)
+        if baseCf then
+            hrp.CFrame = baseCf
+        else
+            hrp.CFrame = baseTeleportPosition
+        end
         return
     end
 
